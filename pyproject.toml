@@ -5,7 +5,7 @@ description = "LLM-assisted packaging with Nix"
 authors = [{name = "Martin Schwaighofer", email = "martin.schwaighofer@ins.jku.at"}]
 license = {text = "MIT"}
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<4.0.0"
 dependencies = [
     "setuptools",
     "wheel",
@@ -21,6 +21,7 @@ dependencies = [
     "loguru",
     "keyring",
     "keyrings.alt",
+    "ddgr (>=2.2,<3.0)",
 ]
 
 [project.scripts]
