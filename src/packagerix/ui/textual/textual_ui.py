@@ -20,7 +20,7 @@ from packagerix.packaging_flow.model_prompts import (
 )
 from packagerix.parsing import scrape_and_process, extract_updated_code
 from packagerix.flake import init_flake
-from packagerix.nix import get_last_ten_lines, invoke_build, test_updated_code, error_stack
+from packagerix.nix import get_last_ten_lines, invoke_build, error_stack
 from packagerix.errors import NixError
 from packagerix.ui.logging_config import logger, log_capture
 import os
