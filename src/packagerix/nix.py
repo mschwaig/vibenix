@@ -101,7 +101,7 @@ def eval_initial_build() -> NixError:
 # an about equal amount goes to an llm to break the tie using same_build_error with the two tails of the two build logs
 def eval_progress(previous_result, current_result) -> NixBuildErrorDiff:    
     error_message_trunc = f"\n```\n{get_tail_of_log(current_result.error.error_message)}\n```\n"
-    prev_error_message_trunc = get_tail_of_log(previous_result.error.error_message)
+    prev_error_message_trunc = f"\n```\n{get_tail_of_log(previous_result.error.error_message)}\n```\n"
     logger.info(f"previous error: {prev_error_message_trunc}")
 
     logger.info(f"new error: {error_message_trunc}")

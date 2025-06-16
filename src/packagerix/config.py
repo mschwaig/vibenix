@@ -23,7 +23,7 @@ def init():
     global flake_dir
 
     flake_dir_obj = tempfile.TemporaryDirectory()
-    atexit.register(flake_dir_obj.cleanup)
+    #atexit.register(flake_dir_obj.cleanup)
 
     flake_dir = Path(flake_dir_obj.name)
    
