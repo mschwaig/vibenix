@@ -104,7 +104,7 @@ def eval_initial_build() -> NixError:
 
 # a significantly higher number of magical phrases indicates progress
 # an about equal amount goes to an llm to break the tie using same_build_error with the two tails of the two build logs
-def eval_progress(previous_result, current_result) -> NixBuildErrorDiff:    
+def eval_progress(previous_result, current_result, build_iteration) -> NixBuildErrorDiff:    
     error_message_trunc = f"\n```\n{get_tail_of_log(current_result.error.error_message)}\n```\n"
     prev_error_message_trunc = f"\n```\n{get_tail_of_log(previous_result.error.error_message)}\n```\n"
     logger.info(f"previous error: {prev_error_message_trunc}")
@@ -113,6 +113,9 @@ def eval_progress(previous_result, current_result) -> NixBuildErrorDiff:
 
     repo = git.Repo(config.flake_dir.as_posix())
     logger.info(repo.commit().diff())
+
+    if build_iteration == 1:
+        return NixBuildErrorDiff.PROGRESS
 
     return evaluate_progress(prev_error_message_trunc, error_message_trunc)
 

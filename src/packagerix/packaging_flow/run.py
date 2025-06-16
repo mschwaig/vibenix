@@ -141,7 +141,7 @@ def package_project(output_dir=None, project_url=None):
     
         # TODO: Check progress using NixBuildErrorDiff and decide whether to continue
 
-        eval_result = eval_progress(best_result, candidate_result)
+        eval_result = eval_progress(best_result, candidate_result, build_iteration)
         if eval_result == NixBuildErrorDiff.PROGRESS:
             coordinator_message(f"Build iteration {build_iteration} made progress...")
             best_result = candidate_result
