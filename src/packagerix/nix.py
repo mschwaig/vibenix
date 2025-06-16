@@ -30,6 +30,11 @@ def invoke_build() -> NixBuildResult:
     )
     
     if eval_result.returncode != 0:
+        if "hash mismatch in fixed-output derivation" in eval_result.stderr:
+            return NixBuildResult(
+                success=False,
+                error=NixError(type=NixErrorKind.HASH_MISMATCH, error_message=eval_result.stderr)
+            )
         return NixBuildResult(
             success=False,
             error=NixError(type=NixErrorKind.EVAL_ERROR, error_message=eval_result.stderr)
