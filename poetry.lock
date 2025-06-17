@@ -514,6 +514,18 @@ test = ["certifi (>=2024)", "cryptography-vectors (==45.0.4)", "pretend (>=0.7)"
 test-randomorder = ["pytest-randomly"]
 
 [[package]]
+name = "ddgr"
+version = "2.2"
+description = "DuckDuckGo from the terminal"
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "ddgr-2.2-py3-none-any.whl", hash = "sha256:5db4e8a4323ce748d40fcdec0c476fc4685e9bb942b79a566eec4f7577bd1037"},
+    {file = "ddgr-2.2.tar.gz", hash = "sha256:f58a5eea5e0916a2594eab7d5a8f97c21cbfcb9347dccb60570ccb9cb2c7cbb8"},
+]
+
+[[package]]
 name = "diskcache"
 version = "5.6.3"
 description = "Disk Cache -- Disk and file backed persistent cache."
@@ -2707,4 +2719,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<4.0.0"
-content-hash = "0fc9aea9d9c3c0a5e18a8e94765f893b886a1dce94d125e2572218f7809fe7b9"
+content-hash = "fb46104f815577ef387915ad60352c10080e9e6310708e9ce72d1c37b68316c0"

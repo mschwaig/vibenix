@@ -11,14 +11,6 @@ from typing import Optional
 from packagerix.flake import update_flake
 from packagerix.ui.logging_config import logger
 
-def search_nixpkgs_for_package(query: str) -> str:
-    """search the nixpkgs repository of Nix code for the given package"""
-
-    result = subprocess.run(["nix", "search", "nixpkgs", query], text=True, capture_output=True)
-    if result.returncode == 0:
-        return result.stdout
-    else:
-        return f"no results found for query '{query}'"
 
 def invoke_build(is_src_attr_only: bool) -> NixBuildResult:
     if is_src_attr_only:

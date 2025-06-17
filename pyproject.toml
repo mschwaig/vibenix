@@ -21,6 +21,7 @@ dependencies = [
     "loguru",
     "keyring",
     "keyrings.alt",
+    "ddgr (>=2.2,<3.0)",
 ]
 
 [project.scripts]

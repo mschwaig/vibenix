@@ -1,15 +1,12 @@
 """Coordinator pattern for packagerix - separates business logic from UI."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Optional, TypeVar
+from typing import Callable, Optional, TypeVar
 from functools import wraps
 from enum import Enum
 from dataclasses import dataclass
 from datetime import datetime
-import asyncio
-from concurrent.futures import Future
-import threading
-from magentic import StreamedStr
+from magentic import StreamedStr, Chat, FunctionCall, ToolResultMessage
 
 # Type variable for function return types
 T = TypeVar('T')
@@ -409,3 +406,35 @@ def coordinator_progress(message: str):
     """Show a progress update from the coordinator."""
     adapter = get_ui_adapter()
     adapter.show_progress(message)
+
+
+def handle_model_chat(chat: Chat) -> str:
+    """Handle a model chat session with function calls and streaming responses.
+    
+    Args:
+        chat: The Chat instance to handle
+        
+    Returns:
+        The final string response from the model
+    """
+    output = None
+    ends_with_function_call = True
+    adapter = get_ui_adapter()
+
+    while ends_with_function_call:
+        ends_with_function_call = False
+        for item in chat.last_message.content:
+            if isinstance(item, StreamedStr):
+                adapter.handle_model_streaming(item)
+                output = item
+                ends_with_function_call = False
+            elif isinstance(item, FunctionCall):
+                function_call = item()
+                adapter.show_message(Message(Actor.MODEL, function_call))
+                chat = chat.add_message(ToolResultMessage(function_call, item._unique_id))
+                ends_with_function_call = True
+        
+        if ends_with_function_call:
+            chat = chat.submit()
+
+    return str(output)
