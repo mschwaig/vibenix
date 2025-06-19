@@ -10,6 +10,7 @@ from packagerix.packaging_flow.model_prompts import pick_template, set_up_projec
 from packagerix.packaging_flow.user_prompts import get_project_url
 from packagerix import config
 from packagerix.errors import NixBuildErrorDiff, NixErrorKind, NixBuildResult
+from packagerix.function_calls_source import create_source_function_calls
 
 
 class Solution(BaseModel):
@@ -82,8 +83,10 @@ def package_project(output_dir=None, project_url=None):
 
     # Step 6.a: Manual src setup
     coordinator_message("Setting up the src attribute in the template...")
-    initial_code = fill_src_attribute(starting_template, project_url, release_data.get('tag_name'))
-    
+    initial_code, store_path = fill_src_attribute(starting_template, project_url,
+                                                  release_data.get('tag_name'))
+
+    additional_functions = create_source_function_calls(store_path)
     # Step 6.b: Create initial package (with LLM assisted src setup)
     #coordinator_message("Creating initial package configuration...")
     #initial_code = create_initial_package(starting_template, project_page, release_data, template_notes)
@@ -124,7 +127,7 @@ def package_project(output_dir=None, project_url=None):
                 coordinator_message("Other error detected, fixing...")
                 coordinator_message(f"code:\n{candidate.code}\n")
                 coordinator_message(f"error:\n{candidate.result.error.error_message}\n")
-                fixed_response = fix_build_error(candidate.code, candidate.result.error.error_message, project_page, release_data, template_notes)
+                fixed_response = fix_build_error(candidate.code, candidate.result.error.error_message, project_page, release_data, template_notes, additional_functions)
             
             updated_code = extract_updated_code(fixed_response)
             

@@ -97,7 +97,7 @@ def pick_template(project_page: str) -> TemplateType:
     ...
 
 
-def fix_build_error(code: str, error: str, project_page: str = None, release_data: dict = None, template_notes: str = None) -> StreamedStr:
+def fix_build_error(code: str, error: str, project_page: str = None, release_data: dict = None, template_notes: str = None, additional_functions: list = []) -> StreamedStr:
     """Fix a build error in Nix code."""
     prompt = """You are software packaging expert who can build any project using the Nix programming language.
 
@@ -154,7 +154,7 @@ And some relevant metadata of the latest release:
             project_info_section=project_info_section,
             template_notes_section=template_notes_section
         ))],
-        functions=[search_nixpkgs_for_package, web_search, fetch_url_content, search_nix_functions],
+        functions=[search_nixpkgs_for_package, web_search, fetch_url_content, search_nix_functions]+additional_functions,
         output_types=[StreamedResponse],
     ).submit()
 

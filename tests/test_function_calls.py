@@ -5,6 +5,7 @@ import os
 import json
 from unittest.mock import patch, MagicMock
 from packagerix.function_calls import search_nixpkgs_for_package, web_search, fetch_url_content, search_nix_functions
+from packagerix.source_function_calls import create_source_function_calls
 
 
 class TestSearchNixpkgsForPackage:
@@ -60,6 +61,30 @@ class TestSearchNixpkgsForPackage:
             assert "jq" in args
             assert "legacyPackages" in args
 
+class TestListDirectoryContents:
+    """Tests for list_directory_contents function."""
+    functions = create_source_function_calls("/nix")
+    
+    def test_list_directory_contents_success(self):
+        """Test successful listing of directory contents."""
+        list_function = self.functions[0]  # TODO this could be improved
+
+        result = list_function(".")
+        assert "store" in result
+    
+    def test_list_directory_contents_invalid_path(self):
+        """Test listing contents of an invalid path."""
+        list_function = self.functions[0]
+
+        result = list_function("absdjweflTHIS_WILL_NEVER_APPEAR")
+        assert "Failed to list contents" in result
+
+    def test_list_directory_contents_outside_store(self):
+        """Test listing contents of an invalid path."""
+        list_function = self.functions[0]
+
+        result = list_function("../")
+        assert "is outside the allowed root directory" in result
 
 class TestWebSearch:
     """Tests for web_search function."""

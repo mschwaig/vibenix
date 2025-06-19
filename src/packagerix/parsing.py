@@ -100,7 +100,18 @@ def fill_src_attribute(template, project_url, version):
     nurl_output = subprocess.run(command, capture_output=True, text=True)
     src_attr = str(nurl_output.stdout)
     # Replace rev = ... with ${version}
-    src_attr = re.sub(r'rev\s*=\s*".*?"', 'rev = "${version}"', src_attr)
+    src_attr = re.sub(r'rev\s*=\s*".*?"', 'rev = "version"', src_attr)
+    # Search for the hash in the output
+    nurl_hash = re.search(r'hash\s*=\s*"(.*?)"', src_attr)
+    nurl_hash = nurl_hash.group(1) if nurl_hash else None
+    if not nurl_hash:
+        logger.error("Could not extract hash from nurl output")
+        raise ValueError("Could not extract hash from nurl output")
+
+    store_path = subprocess.run(["nix-store", "--print-fixed-path", "sha256",
+                                 "--recursive", nurl_hash, "source"],
+                                 capture_output=True, text=True)
+    store_path = str(store_path.stdout).strip()
 
     # Indent properly
     lines = src_attr.splitlines()
@@ -122,7 +133,7 @@ def fill_src_attribute(template, project_url, version):
     filled_template = re.sub(pattern, src_attr, filled_template, flags=re.DOTALL)
     logger.debug(f"Final filled template: {filled_template}")
     
-    return filled_template
+    return filled_template, store_path
 
 def fetch_combined_project_data(url):
     """Fetch both HTML and API data for a GitHub project."""
