@@ -93,18 +93,29 @@ def fetch_github_release_data(url):
         logger.error(f"Failed to fetch release data from GitHub API: {e}")
         return None
 
-def fill_src_attribute(template, project_url, version):
+def fill_src_attribute(template, project_url, rev_string):
     """Fill the pname, version and src attributes in the template."""
     # Run nurl on the project URL to get src attribute
-    command = ["nurl", project_url] + ([version] if version else [])
+    command = ["nurl", project_url, rev_string]
     nurl_output = subprocess.run(command, capture_output=True, text=True)
     src_attr = str(nurl_output.stdout)
+
+    # From the revision string, extract the version (SemVer) 
+    pattern = r"(\d+(\.\d+)*(-[0-9a-zA-Z-.]*)?)"
+    match = re.search(pattern, rev_string)
+    if match:
+        version, rev_string = match.group(0), rev_string.replace(match.group(0), "${version}", 1)
+    else:
+        logger.error(f"Could not extract version from revision string: {rev_string}")
+        raise ValueError(f"Could not extract version from revision string: {rev_string}")
+
     # Replace rev = ... with ${version}
-    src_attr = re.sub(r'rev\s*=\s*".*?"', 'rev = "version"', src_attr)
+    src_attr = re.sub(r'rev\s*=\s*".*?"', f'rev = \"{rev_string}\"', src_attr)
     # Search for the hash in the output
     nurl_hash = re.search(r'hash\s*=\s*"(.*?)"', src_attr)
-    nurl_hash = nurl_hash.group(1) if nurl_hash else None
-    if not nurl_hash:
+    if nurl_hash:
+        nurl_hash = nurl_hash.group(1)
+    else:
         logger.error("Could not extract hash from nurl output")
         raise ValueError("Could not extract hash from nurl output")
 
@@ -122,6 +133,7 @@ def fill_src_attribute(template, project_url, version):
 
     if not (match := re.search(r'repo\s*=\s*"(.*?)"', src_attr)):
         logger.error("Could not extract repo")
+        raise ValueError("Could not extract repo from nurl output")
     else:
         repo = match.group(1)
     # Fill in the "pname = ...", "version = ..." attributes in the template
