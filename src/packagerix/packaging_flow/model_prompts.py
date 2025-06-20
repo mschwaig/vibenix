@@ -116,6 +116,9 @@ Error:
 
 {template_notes_section}
 
+If the error message does not give you enough information to make progress, and to verify your actions, look at relevant files in the proejct directory,
+and try to compare your approach with similar packages in nixpkgs.
+You can also search the web or fetch content if required.
 Note: Nothing in the meta attribute of a derivation has any impact on its build output, so do not provide a meta attribute.
 Note: Do not change any other arguments of fetchFromGitHub or another fetcher if it has an actual hash already.
 Note: Your reply should contain exactly one code block with the updated Nix code.
