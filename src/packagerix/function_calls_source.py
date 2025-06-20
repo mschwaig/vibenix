@@ -2,6 +2,9 @@ from typing import List, Callable, Any
 from pathlib import Path
 import subprocess
 from magika import Magika
+from itertools import islice
+
+MAX_LINES_TO_READ = 500
 
 def create_source_function_calls(store_path: str) -> List[Callable]:
     """
@@ -34,6 +37,7 @@ def create_source_function_calls(store_path: str) -> List[Callable]:
         magika = Magika()
         result = magika.identify_path(path)
         return result.output.is_text
+
     def list_directory_contents(relative_path: str) -> str:
         """List contents of a relative directory within the project source given its relative path to the root directory."""
         print("📞 Function called: list_directory_contents with path: ", relative_path)
@@ -49,13 +53,19 @@ def create_source_function_calls(store_path: str) -> List[Callable]:
                         on the project source directory."
         except Exception as e:
             return f"Error listing directory contents: {str(e)}"
-    def read_file_content(relative_path: str) -> str:
+
+    def read_file_content(relative_path: str, line_offset: int = 0, number_lines_to_read: int = MAX_LINES_TO_READ) -> str:
         """Read the content of a file within the project source given its relative path to the root directory."""
         print("📞 Function called: read_file_content with path: ", relative_path)
         try:
             path = _validate_path(relative_path)
+            if not _is_text_file(path):
+                return f"File '{relative_path}' is not a text file. {detect_file_type_and_size(relative_path)}."
+
+            number_lines_to_read = min(max(1, number_lines_to_read), MAX_LINES_TO_READ)
             with open(path, 'r', encoding='utf-8') as file:
-                return file.read()
+                sliced_lines = islice(file, line_offset, line_offset + number_lines_to_read)
+                return "".join(sliced_lines)
         except Exception as e:
             return f"Error reading file content: {str(e)}"
     
