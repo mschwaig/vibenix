@@ -12,6 +12,8 @@ from packagerix.packaging_flow.user_prompts import get_project_url
 from packagerix import config
 from packagerix.errors import NixBuildErrorDiff, NixErrorKind, NixBuildResult
 from packagerix.function_calls_source import create_source_function_calls
+from magentic import Chat, StreamedResponse
+from packagerix.function_calls import search_nixpkgs_for_package, web_search, fetch_url_content, search_nix_functions
 
 
 class Solution(BaseModel):
@@ -131,6 +133,16 @@ def package_project(output_dir=None, project_url=None):
     eval_iteration = 1
     max_inner_attempts = 5
     candidate = best
+
+    chat = Chat(
+        functions=[
+            search_nixpkgs_for_package, 
+            web_search, 
+            fetch_url_content, 
+            search_nix_functions
+        ] + additional_functions,
+        output_types=[StreamedResponse],
+    )
     
     while True:
         coordinator_message(f"Build iteration {build_iteration} - attempting to fix error:")
@@ -148,7 +160,14 @@ def package_project(output_dir=None, project_url=None):
                 coordinator_message("Other error detected, fixing...")
                 coordinator_message(f"code:\n{candidate.code}\n")
                 coordinator_message(f"error:\n{candidate.result.error.error_message}\n")
-                fixed_response = fix_build_error(candidate.code, candidate.result.error.error_message, project_page, release_data, template_notes, additional_functions)
+                chat, fixed_response = fix_build_error(
+                    chat, 
+                    candidate.code, 
+                    candidate.result.error.error_message, 
+                    project_page, 
+                    release_data, 
+                    template_notes
+                )
             
             updated_code = extract_updated_code(fixed_response)
             

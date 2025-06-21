@@ -8,7 +8,6 @@ from packagerix.template.template_types import TemplateType
 from packagerix.ui.conversation import ask_model, ask_model_enum, handle_model_chat
 from packagerix.errors import NixBuildErrorDiff
 from magentic import Chat, UserMessage, StreamedResponse
-from packagerix.function_calls import search_nixpkgs_for_package, web_search, fetch_url_content, search_nix_functions
 
 
 def set_up_project(code_template: str, project_page: str, release_data: dict = None, template_notes: str = None) -> StreamedStr:
@@ -97,7 +96,9 @@ def pick_template(project_page: str) -> TemplateType:
     ...
 
 
-def fix_build_error(code: str, error: str, project_page: str = None, release_data: dict = None, template_notes: str = None, additional_functions: list = []) -> StreamedStr:
+def fix_build_error(
+    chat: Chat, code: str, error: str, project_page: str = None, release_data: dict = None, template_notes: str = None
+) -> tuple[Chat, StreamedStr]:
     """Fix a build error in Nix code."""
     prompt = """You are software packaging expert who can build any project using the Nix programming language.
 
@@ -150,16 +151,12 @@ And some relevant metadata of the latest release:
 ```
 """
 
-    chat = Chat(
-        messages=[UserMessage(prompt.format(
-            code=code, 
-            error=error,
-            project_info_section=project_info_section,
-            template_notes_section=template_notes_section
-        ))],
-        functions=[search_nixpkgs_for_package, web_search, fetch_url_content, search_nix_functions]+additional_functions,
-        output_types=[StreamedResponse],
-    ).submit()
+    chat = chat.add_message(UserMessage(prompt.format(
+        code=code, 
+        error=error,
+        project_info_section=project_info_section,
+        template_notes_section=template_notes_section
+    ))).submit()
 
     return handle_model_chat(chat)
 

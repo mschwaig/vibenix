@@ -391,7 +391,7 @@ def _retry_with_rate_limit(func, *args, max_retries=20, base_delay=5, **kwargs):
                 raise
 
 
-def handle_model_chat(chat: Chat) -> str:
+def handle_model_chat(chat: Chat) -> tuple[Chat, str]:
     """Handle a model chat session with function calls and streaming responses.
     
     Args:
@@ -422,7 +422,7 @@ def handle_model_chat(chat: Chat) -> str:
             if ends_with_function_call:
                 current_chat = current_chat.submit()
 
-        return str(output)
+        return current_chat, str(output)
     
     # Use retry wrapper for the entire chat processing
     return _retry_with_rate_limit(_chat_processing)
