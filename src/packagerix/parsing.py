@@ -96,21 +96,37 @@ def fetch_github_release_data(url):
 def fill_src_attribute(template, project_url, rev_string):
     """Fill the pname, version and src attributes in the template."""
     # Run nurl on the project URL to get src attribute
-    command = ["nurl", project_url, rev_string]
+    if rev_string:
+        command = ["nurl", project_url, rev_string]
+    else:
+        command = ["nurl", project_url]
     nurl_output = subprocess.run(command, capture_output=True, text=True)
     src_attr = str(nurl_output.stdout)
 
-    # From the revision string, extract the version (SemVer) 
-    pattern = r"(\d+(\.\d+)*(-[0-9a-zA-Z-.]*)?)"
-    match = re.search(pattern, rev_string)
-    if match:
-        version, rev_string = match.group(0), rev_string.replace(match.group(0), "${version}", 1)
+    # Determine version based on whether we have a rev_string
+    if rev_string:
+        # From the revision string, extract the version (SemVer) 
+        pattern = r"(\d+(\.\d+)*(-[0-9a-zA-Z-.]*)?)"
+        match = re.search(pattern, rev_string)
+        if match:
+            version = match.group(0)
+            rev_string = rev_string.replace(match.group(0), "${version}", 1)
+            # Replace rev = ... with ${version}
+            src_attr = re.sub(r'rev\s*=\s*".*?"', f'rev = "{rev_string}"', src_attr)
+        else:
+            logger.error(f"Could not extract version from revision string: {rev_string}")
+            raise ValueError(f"Could not extract version from revision string: {rev_string}")
     else:
-        logger.error(f"Could not extract version from revision string: {rev_string}")
-        raise ValueError(f"Could not extract version from revision string: {rev_string}")
+        # No rev_string provided, extract commit hash from nurl output
+        # nurl will use the latest commit, so extract the commit hash for version
+        commit_match = re.search(r'rev\s*=\s*"([a-f0-9]+)"', src_attr)
+        if commit_match:
+            commit_hash = commit_match.group(1)
+            version = f"latest-{commit_hash[:8]}"  # Use first 8 chars of commit
+        else:
+            logger.error("Could not extract commit hash from nurl output")
+            raise ValueError("Could not extract commit hash from nurl output")
 
-    # Replace rev = ... with ${version}
-    src_attr = re.sub(r'rev\s*=\s*".*?"', f'rev = \"{rev_string}\"', src_attr)
     # Search for the hash in the output
     nurl_hash = re.search(r'hash\s*=\s*"(.*?)"', src_attr)
     if nurl_hash:

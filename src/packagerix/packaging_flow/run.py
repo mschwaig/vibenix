@@ -100,8 +100,9 @@ def package_project(output_dir=None, project_url=None):
 
     # Step 6.a: Manual src setup
     coordinator_message("Setting up the src attribute in the template...")
-    initial_code, store_path = fill_src_attribute(starting_template, project_url,
-                                                  release_data.get('tag_name'))
+    # Get revision string from release data if available, otherwise None
+    rev_string = release_data.get('tag_name') if release_data else None
+    initial_code, store_path = fill_src_attribute(starting_template, project_url, rev_string)
 
     # Create functions for both the project source and nixpkgs
     project_functions = create_source_function_calls(store_path, "project_")
