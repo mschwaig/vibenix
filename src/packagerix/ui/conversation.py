@@ -6,7 +6,7 @@ from functools import wraps
 from enum import Enum
 from dataclasses import dataclass
 from datetime import datetime
-from magentic import StreamedStr, Chat, FunctionCall, ToolResultMessage
+from magentic import StreamedStr, Chat, FunctionCall, ToolResultMessage, StreamedResponse
 
 # Type variable for function return types
 T = TypeVar('T')
@@ -405,14 +405,27 @@ def handle_model_chat_build_results(chat: Chat):
         NixBuildResult objects from evaluate_nix_code tool calls
     """
     def _chat_processing_generator():
-        output = None
-        ends_with_function_call = True
         adapter = get_ui_adapter()
         current_chat = chat
+        ends_with_function_call = True
 
-        while True:  # Keep going until we're told to stop
+        while True:
             ends_with_function_call = False
-            for item in current_chat.last_message.content:
+
+            # Handle response content - can be StreamedResponse, single item, or iterable
+            content = current_chat.last_message.content
+            
+            if isinstance(content, StreamedResponse):
+                # StreamedResponse is iterable and can contain both text and function calls
+                items = content
+            elif isinstance(content, (FunctionCall, StreamedStr)):
+                # Single item - wrap in a list
+                items = [content]
+            else:
+                # Already iterable
+                items = content
+            
+            for item in items:
                 if isinstance(item, StreamedStr):
                     # Handle model text responses
                     response = adapter.handle_model_streaming(item)
@@ -420,41 +433,37 @@ def handle_model_chat_build_results(chat: Chat):
                     ends_with_function_call = False
                 elif isinstance(item, FunctionCall):
                     # Execute the function call
-                    function_call = item()
-                    
-                    # If this is evaluate_nix_code, yield the result and potentially receive hash fix
-                    if hasattr(item, 'function') and item.function.__name__ == 'evaluate_nix_code':
-                        from packagerix.errors import NixBuildResult
-                        if isinstance(function_call, NixBuildResult):
-                            # Yield the result and wait for potential hash fix
-                            hash_fixed_code = yield function_call
-                            
-                            # If we received a hash fix, inject it back into the conversation
-                            if hash_fixed_code:
-                                from magentic import UserMessage
-                                adapter.show_message(Message(Actor.COORDINATOR, "Applied hash mismatch fix. Continuing..."))
-                                # Add a message to inform the model about the hash fix
-                                current_chat = current_chat.add_message(
-                                    UserMessage(f"The hash mismatch was automatically fixed. The updated code is:\n```nix\n{hash_fixed_code}\n```\nPlease continue working with this updated code.")
-                                )
-                                ends_with_function_call = True
-                                break  # Break inner loop to resubmit chat
-                    
-                    # Show the result and continue conversation
-                    adapter.show_message(Message(Actor.MODEL, function_call))
-                    current_chat = current_chat.add_message(ToolResultMessage(function_call, item._unique_id))
                     ends_with_function_call = True
+                    
+                    # If this is evaluate_nix_code, execute and yield the result
+                    if hasattr(item, 'function') and item.function.__name__ == 'evaluate_nix_code':
+                        build_result = item()  # Execute the function call
+                        response_result = yield build_result  # Yield result and receive back what to send to model
+                        current_chat = current_chat.add_message(ToolResultMessage(response_result, item._unique_id))
+                    else:
+                        function_call = item()
+                        # Convert to string if it's a StreamedStr
+                        if isinstance(function_call, StreamedStr):
+                            # It's a StreamedStr, consume it
+                            function_call_str = ''.join(str(chunk) for chunk in function_call)
+                        elif hasattr(function_call, '__iter__') and not isinstance(function_call, (str, dict, list)):
+                            # Some other iterable, convert it
+                            function_call_str = ''.join(str(chunk) for chunk in function_call)
+                        else:
+                            function_call_str = function_call
+                        adapter.show_message(Message(Actor.MODEL, str(function_call_str)))
+                        current_chat = current_chat.add_message(ToolResultMessage(function_call_str, item._unique_id))
             
             if ends_with_function_call:
-                current_chat = current_chat.submit()
+                current_chat = _retry_with_rate_limit(lambda: current_chat.submit())
             else:
                 # Model didn't use a tool - prompt it to continue
                 from magentic import UserMessage
                 adapter.show_message(Message(Actor.COORDINATOR, "Prompting model to continue using tools..."))
+
                 current_chat = current_chat.add_message(
                     UserMessage("Please continue using the evaluate_nix_code tool to test and fix the Nix code until it builds successfully. The system will tell you when to stop.")
                 )
-                current_chat = current_chat.submit()
-    
-    # Yield from the retry wrapper
-    yield from _retry_with_rate_limit(_chat_processing_generator)
+                current_chat = _retry_with_rate_limit(lambda: current_chat.submit())
+
+    yield from _chat_processing_generator()

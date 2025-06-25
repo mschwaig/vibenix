@@ -3,11 +3,11 @@
 This module contains all functions decorated with @ask_model that interact with the AI model.
 """
 
-from magentic import StreamedStr
+from magentic import FunctionCall, StreamedStr, StreamedResponse
 from packagerix.template.template_types import TemplateType
 from packagerix.ui.conversation import ask_model, ask_model_enum, handle_model_chat_build_results
 from packagerix.errors import NixBuildErrorDiff, NixBuildResult
-from magentic import Chat, UserMessage, StreamedResponse
+from magentic import Chat, UserMessage
 from packagerix.function_calls import search_nixpkgs_for_package, web_search, fetch_url_content, search_nix_functions, evaluate_nix_code
 from typing import Generator
 
@@ -113,7 +113,7 @@ And some relevant metadata of the latest release:
             template_notes_section=template_notes_section
         ))],
         functions=[search_nixpkgs_for_package, web_search, fetch_url_content, search_nix_functions, evaluate_nix_code]+additional_functions,
-        output_types=[StreamedResponse],
+        output_types=[StreamedResponse]
     ).submit()
 
     return handle_model_chat_build_results(chat)
