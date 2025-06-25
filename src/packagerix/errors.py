@@ -24,3 +24,4 @@ class NixBuildResult(BaseModel):
     success: bool
     is_src_attr_only: bool
     error: Optional[NixError] = None
+    code: str  # The Nix code that was evaluated

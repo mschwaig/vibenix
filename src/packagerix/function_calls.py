@@ -2,6 +2,7 @@ import subprocess
 import requests
 import json
 import os
+from packagerix.errors import NixBuildResult
 
 def search_nixpkgs_for_package(query: str) -> str:
     """Search the nixpkgs repository of Nix code for the given package"""
@@ -103,4 +104,13 @@ def search_nix_functions(query: str) -> str:
         return "Error: fzf not found. Please ensure fzf is available in the environment."
     except Exception as e:
         return f"Error searching Nix functions: {str(e)}"
+
+def evaluate_nix_code(nix_code: str) -> NixBuildResult:
+    """Evaluate Nix code by updating the flake and running nix build. Returns a NixBuildResult object."""
+    
+    print("📞 Function called: evaluate_nix_code")
+    
+    # Import here to avoid circular imports
+    from packagerix.nix import execute_build_and_add_to_stack
+    return execute_build_and_add_to_stack(nix_code)
     

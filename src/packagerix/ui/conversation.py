@@ -391,16 +391,20 @@ def _retry_with_rate_limit(func, *args, max_retries=20, base_delay=5, **kwargs):
                 raise
 
 
-def handle_model_chat(chat: Chat) -> str:
-    """Handle a model chat session with function calls and streaming responses.
+def handle_model_chat_build_results(chat: Chat):
+    """Generator that yields NixBuildResult objects from evaluate_nix_code calls.
+    
+    This handles a model chat session, yielding build results as they occur,
+    allowing the caller to implement iteration limits and progress checks.
+    Can receive updated code via send() to handle hash fixes.
     
     Args:
         chat: The Chat instance to handle
         
-    Returns:
-        The final string response from the model
+    Yields:
+        NixBuildResult objects from evaluate_nix_code tool calls
     """
-    def _chat_processing():
+    def _chat_processing_generator():
         output = None
         ends_with_function_call = True
         adapter = get_ui_adapter()
@@ -410,19 +414,62 @@ def handle_model_chat(chat: Chat) -> str:
             ends_with_function_call = False
             for item in current_chat.last_message.content:
                 if isinstance(item, StreamedStr):
-                    adapter.handle_model_streaming(item)
-                    output = item
+                    # Handle model text responses
+                    response = adapter.handle_model_streaming(item)
+                    output = response
                     ends_with_function_call = False
                 elif isinstance(item, FunctionCall):
+                    # Execute the function call
                     function_call = item()
+                    
+                    # If this is evaluate_nix_code, yield the result and potentially receive hash fix
+                    if hasattr(item, 'function') and item.function.__name__ == 'evaluate_nix_code':
+                        from packagerix.errors import NixBuildResult
+                        if isinstance(function_call, NixBuildResult):
+                            # Yield the result and wait for potential hash fix
+                            hash_fixed_code = yield function_call
+                            
+                            # If we received a hash fix, inject it back into the conversation
+                            if hash_fixed_code:
+                                from magentic import UserMessage
+                                adapter.show_message(Message(Actor.COORDINATOR, "Applied hash mismatch fix. Continuing..."))
+                                # Add a message to inform the model about the hash fix
+                                current_chat = current_chat.add_message(
+                                    UserMessage(f"The hash mismatch was automatically fixed. The updated code is:\n```nix\n{hash_fixed_code}\n```\nPlease continue working with this updated code.")
+                                )
+                                ends_with_function_call = True
+                                break  # Break inner loop to resubmit chat
+                    
+                    # Show the result and continue conversation
                     adapter.show_message(Message(Actor.MODEL, function_call))
                     current_chat = current_chat.add_message(ToolResultMessage(function_call, item._unique_id))
                     ends_with_function_call = True
             
             if ends_with_function_call:
                 current_chat = current_chat.submit()
-
-        return str(output)
     
-    # Use retry wrapper for the entire chat processing
-    return _retry_with_rate_limit(_chat_processing)
+    # Yield from the retry wrapper
+    yield from _retry_with_rate_limit(_chat_processing_generator)
+
+
+def handle_model_chat(chat: Chat) -> str:
+    """Handle a model chat session with function calls and streaming responses.
+    
+    This is the original non-generator version, kept for backward compatibility.
+    
+    Args:
+        chat: The Chat instance to handle
+        
+    Returns:
+        The final string response from the model, or the successful code if a build succeeds
+    """
+    # Use the generator version and consume all results
+    last_result = None
+    for build_result in handle_model_chat_build_results(chat):
+        last_result = build_result
+        if build_result.success:
+            return build_result.code
+    
+    # If we get here, no successful build occurred
+    # The generator exhausted without success
+    raise RuntimeError("Model stopped generating without producing a successful build")

@@ -12,7 +12,7 @@ from packagerix.flake import update_flake
 from packagerix.ui.logging_config import logger
 
 
-def invoke_build(is_src_attr_only: bool) -> NixBuildResult:
+def invoke_build(is_src_attr_only: bool, code: str) -> NixBuildResult:
     if is_src_attr_only:
         target_attr = f"{config.flake_dir}#default.src"
     else:
@@ -30,12 +30,14 @@ def invoke_build(is_src_attr_only: bool) -> NixBuildResult:
             return NixBuildResult(
                 success=False,
                 is_src_attr_only=is_src_attr_only,
-                error=NixError(type=NixErrorKind.HASH_MISMATCH, error_message=eval_result.stderr)
+                error=NixError(type=NixErrorKind.HASH_MISMATCH, error_message=eval_result.stderr),
+                code=code
             )
         return NixBuildResult(
             success=False,
             is_src_attr_only=is_src_attr_only,
-            error=NixError(type=NixErrorKind.EVAL_ERROR, error_message=eval_result.stderr)
+            error=NixError(type=NixErrorKind.EVAL_ERROR, error_message=eval_result.stderr),
+            code=code
         )
     
     derivation_path = eval_result.stdout.strip()
@@ -50,14 +52,15 @@ def invoke_build(is_src_attr_only: bool) -> NixBuildResult:
 
     # If build succeeded, return success
     if build_result.returncode == 0:
-        return NixBuildResult(success=True, is_src_attr_only=is_src_attr_only)
+        return NixBuildResult(success=True, is_src_attr_only=is_src_attr_only, code=code)
 
     # Build failed, check if it's a hash mismatch before getting logs
     if "hash mismatch in fixed-output derivation" in build_result.stderr:
         return NixBuildResult(
             success=False,
             is_src_attr_only=is_src_attr_only,
-            error=NixError(type=NixErrorKind.HASH_MISMATCH, error_message=build_result.stderr)
+            error=NixError(type=NixErrorKind.HASH_MISMATCH, error_message=build_result.stderr),
+            code=code
         )
 
     # Not a hash mismatch, get logs for build error
@@ -75,7 +78,8 @@ def invoke_build(is_src_attr_only: bool) -> NixBuildResult:
     return NixBuildResult(
         success=False,
         is_src_attr_only=is_src_attr_only,
-        error=NixError(type=NixErrorKind.BUILD_ERROR, error_message=log_result.stdout)
+        error=NixError(type=NixErrorKind.BUILD_ERROR, error_message=log_result.stdout),
+        code=code
     )
 
 
@@ -195,8 +199,8 @@ def eval_progress(previous_result: NixBuildResult, current_result: NixBuildResul
 def execute_build_and_add_to_stack(updated_code: str) -> NixBuildResult:
     """Update flake with new code, build it, and add result to error stack."""
     update_flake(updated_code)
-    result = invoke_build(True)
+    result = invoke_build(True, updated_code)
     if result.success:
-        result = invoke_build(False)
+        result = invoke_build(False, updated_code)
     config.error_stack.append(result)
     return result

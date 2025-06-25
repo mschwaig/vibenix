@@ -136,27 +136,25 @@ def package_project(output_dir=None, project_url=None):
         coordinator_message(f"Build iteration {build_iteration} - attempting to fix error:")
         coordinator_message(f"```\n{candidate.result.error.error_message}\n```")
         
+        # Call fix_build_error to get a generator of NixBuildResult objects
+        build_results_generator = fix_build_error(candidate.code, candidate.result.error.error_message, 
+                                                  project_page, release_data, template_notes, additional_functions)
+        
         # Inner loop: Fix evaluation errors with limited attempts
+        hash_fix_to_send = None
+        
         while True:
-            # Fix the error based on type
-            if candidate.result.error.type == NixErrorKind.HASH_MISMATCH:
-                coordinator_message("Hash mismatch detected, fixing...")
-                coordinator_message(f"code:\n{candidate.code}\n")
-                coordinator_message(f"error:\n{candidate.result.error.error_message}\n")
-                fixed_response = fix_hash_mismatch(candidate.code, candidate.result.error.error_message)
+            # Get next build result from generator (or send hash fix if we have one)
+            if hash_fix_to_send:
+                build_result = build_results_generator.send(hash_fix_to_send)
+                hash_fix_to_send = None
             else:
-                coordinator_message("Other error detected, fixing...")
-                coordinator_message(f"code:\n{candidate.code}\n")
-                coordinator_message(f"error:\n{candidate.result.error.error_message}\n")
-                fixed_response = fix_build_error(candidate.code, candidate.result.error.error_message, project_page, release_data, template_notes, additional_functions)
+                build_result = next(build_results_generator)
             
-            updated_code = extract_updated_code(fixed_response)
+            eval_iteration += 1
             
-            # Test the fix
-            coordinator_progress(f"Iteration {build_iteration}: Testing fix attempt {eval_iteration}/{max_inner_attempts}...")
-            prev_candidate_error_type = candidate.result.error.type
-            new_result = execute_build_and_add_to_stack(updated_code)
-            candidate = Solution(code=updated_code, result=new_result)
+            # Always update candidate with latest result
+            candidate = Solution(code=build_result.code, result=build_result)
             
             if candidate.result.success:
                 coordinator_message(f"✅ Build succeeded after {build_iteration} iterations!")
@@ -169,17 +167,19 @@ def package_project(output_dir=None, project_url=None):
             if candidate.result.error.type == NixErrorKind.EVAL_ERROR:
                 # Evaluation error - continue inner loop
                 coordinator_message(f"{candidate.result.error.type} (attempt {eval_iteration}/{max_inner_attempts}), retrying...")
-                eval_iteration += 1
             elif candidate.result.error.type == NixErrorKind.HASH_MISMATCH:
-                # Evaluation error - continue inner loop
+                # Hash mismatch - fix and send back to generator
+                coordinator_message("Hash mismatch detected, fixing...")
                 coordinator_message(f"{candidate.result.error.type} (attempt {eval_iteration}/{max_inner_attempts}), retrying...")
-                eval_iteration += 1
+                fixed_response = fix_hash_mismatch(candidate.code, candidate.result.error.error_message)
+                hash_fix_to_send = extract_updated_code(fixed_response)
             elif candidate.result.error.type == NixErrorKind.BUILD_ERROR:
                 break
+            
             if eval_iteration > max_inner_attempts:
                 coordinator_error(f"Failed to make progress within {max_inner_attempts} attempts.")
                 return None
-    
+        
         # TODO: Check progress using NixBuildErrorDiff and decide whether to continue
 
         eval_result = eval_progress(best.result, candidate.result, build_iteration)

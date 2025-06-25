@@ -5,10 +5,11 @@ This module contains all functions decorated with @ask_model that interact with 
 
 from magentic import StreamedStr
 from packagerix.template.template_types import TemplateType
-from packagerix.ui.conversation import ask_model, ask_model_enum, handle_model_chat
-from packagerix.errors import NixBuildErrorDiff
+from packagerix.ui.conversation import ask_model, ask_model_enum, handle_model_chat, handle_model_chat_build_results
+from packagerix.errors import NixBuildErrorDiff, NixBuildResult
 from magentic import Chat, UserMessage, StreamedResponse
-from packagerix.function_calls import search_nixpkgs_for_package, web_search, fetch_url_content, search_nix_functions
+from packagerix.function_calls import search_nixpkgs_for_package, web_search, fetch_url_content, search_nix_functions, evaluate_nix_code
+from typing import Generator
 
 
 def set_up_project(code_template: str, project_page: str, release_data: dict = None, template_notes: str = None) -> StreamedStr:
@@ -97,7 +98,7 @@ def pick_template(project_page: str) -> TemplateType:
     ...
 
 
-def fix_build_error(code: str, error: str, project_page: str = None, release_data: dict = None, template_notes: str = None, additional_functions: list = []) -> StreamedStr:
+def fix_build_error(code: str, error: str, project_page: str = None, release_data: dict = None, template_notes: str = None, additional_functions: list = []) -> Generator[NixBuildResult, None, None]:
     """Fix a build error in Nix code."""
     prompt = """You are software packaging expert who can build any project using the Nix programming language.
 
@@ -116,12 +117,21 @@ Error:
 
 {template_notes_section}
 
-If the error message does not give you enough information to make progress, and to verify your actions, look at relevant files in the proejct directory,
+IMPORTANT: You now have access to the evaluate_nix_code tool. You MUST use this tool to test your fixes:
+1. When you think you have a solution, call evaluate_nix_code with your updated Nix code
+2. The tool will build the code and return a NixBuildResult with success status and any errors
+3. If it succeeds, great! Keep using the tool if asked to continue.
+4. If it fails with an EVAL_ERROR, you MUST try again with a different approach using the tool
+5. If it fails with a BUILD_ERROR, keep using the tool if asked to continue
+
+ALWAYS continue using the evaluate_nix_code tool when you receive error feedback. The system will tell you when to stop.
+You can use multiple iterations to fix evaluation errors. The context of previous attempts will be preserved.
+
+If the error message does not give you enough information to make progress, and to verify your actions, look at relevant files in the project directory,
 and try to compare your approach with similar packages in nixpkgs.
 You can also search the web or fetch content if required.
 Note: Nothing in the meta attribute of a derivation has any impact on its build output, so do not provide a meta attribute.
 Note: Do not change any other arguments of fetchFromGitHub or another fetcher if it has an actual hash already.
-Note: Your reply should contain exactly one code block with the updated Nix code.
 Note: If you need to introduce a new hash, use lib.fakeHash as a placeholder, and automated process will replace this with the actual hash.
 Note: Never replace existing hashes with `lib.fakeHash` or otherwise modify existing hashes."""
 
@@ -157,11 +167,11 @@ And some relevant metadata of the latest release:
             project_info_section=project_info_section,
             template_notes_section=template_notes_section
         ))],
-        functions=[search_nixpkgs_for_package, web_search, fetch_url_content, search_nix_functions]+additional_functions,
+        functions=[search_nixpkgs_for_package, web_search, fetch_url_content, search_nix_functions, evaluate_nix_code]+additional_functions,
         output_types=[StreamedResponse],
     ).submit()
 
-    return handle_model_chat(chat)
+    return handle_model_chat_build_results(chat)
 
 
 @ask_model_enum("""@model You are software packaging expert who can build any project using the Nix programming language.
