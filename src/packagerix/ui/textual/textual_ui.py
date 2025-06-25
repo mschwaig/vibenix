@@ -3,26 +3,13 @@ from textual.containers import Horizontal, Vertical, ScrollableContainer
 from textual.widgets import Input, Static, Header, Footer, Button, RichLog
 from textual.message import Message
 from textual import on, work
-from textual.worker import Worker, WorkerState
 from textual.screen import ModalScreen
 from rich.text import Text
 from rich.panel import Panel
-from rich.console import Console
-from rich.markdown import Markdown
-import asyncio
 from datetime import datetime
 
 # Import existing packagerix functionality
 from packagerix import config
-from packagerix.packaging_flow.model_prompts import (
-    set_up_project,
-    summarize_github
-)
-from packagerix.parsing import scrape_and_process, extract_updated_code
-from packagerix.flake import init_flake
-from packagerix.nix import get_tail_of_log, invoke_build
-from packagerix import config
-from packagerix.errors import NixError
 from packagerix.ui.logging_config import logger, log_capture
 import os
 

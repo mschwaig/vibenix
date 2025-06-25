@@ -7,7 +7,7 @@ from packagerix.ui.conversation import ask_user,  coordinator_message, coordinat
 from packagerix.parsing import scrape_and_process, extract_updated_code, fetch_combined_project_data, fill_src_attribute
 from packagerix.flake import init_flake
 from packagerix.nix import eval_progress, execute_build_and_add_to_stack
-from packagerix.packaging_flow.model_prompts import pick_template, set_up_project, summarize_github, fix_build_error, fix_hash_mismatch
+from packagerix.packaging_flow.model_prompts import pick_template, summarize_github, fix_build_error, fix_hash_mismatch
 from packagerix.packaging_flow.user_prompts import get_project_url
 from packagerix import config
 from packagerix.errors import NixBuildErrorDiff, NixErrorKind, NixBuildResult
@@ -41,13 +41,6 @@ def analyze_project(project_page: str, release_data: dict = None) -> str:
     """Analyze the project using the model."""
     # summarize_github already has the @ask_model decorator
     return summarize_github(project_page, release_data)
-
-
-def create_initial_package(template: str, project_page: str, release_data: dict = None, template_notes: str = None) -> str:
-    """Create initial package configuration."""
-    # set_up_project now has the @ask_model decorator that handles UI and streaming
-    result = set_up_project(template, project_page, release_data, template_notes)
-    return extract_updated_code(result)
 
 def package_project(output_dir=None, project_url=None):
     """Main coordinator function for packaging a project."""
@@ -108,13 +101,6 @@ def package_project(output_dir=None, project_url=None):
     nixpkgs_path = get_nixpkgs_source_path()
     nixpkgs_functions = create_source_function_calls(nixpkgs_path, "nixpkgs_")
     additional_functions = project_functions + nixpkgs_functions
-    # Step 6.b: Create initial package (with LLM assisted src setup)
-    #coordinator_message("Creating initial package configuration...")
-    #initial_code = create_initial_package(starting_template, project_page, release_data, template_notes)
-    
-    # Step 7: Nested build and fix loop
-    # Outer loop: Build iterations (unlimited, driven by progress)
-    # Inner loop: Evaluation error fixes (max 5 attempts)
     
     coordinator_progress("Testing the initial build...")
     initial_result = execute_build_and_add_to_stack(initial_code)

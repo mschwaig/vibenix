@@ -458,26 +458,3 @@ def handle_model_chat_build_results(chat: Chat):
     
     # Yield from the retry wrapper
     yield from _retry_with_rate_limit(_chat_processing_generator)
-
-
-def handle_model_chat(chat: Chat) -> str:
-    """Handle a model chat session with function calls and streaming responses.
-    
-    This is the original non-generator version, kept for backward compatibility.
-    
-    Args:
-        chat: The Chat instance to handle
-        
-    Returns:
-        The final string response from the model, or the successful code if a build succeeds
-    """
-    # Use the generator version and consume all results
-    last_result = None
-    for build_result in handle_model_chat_build_results(chat):
-        last_result = build_result
-        if build_result.success:
-            return build_result.code
-    
-    # If we get here, no successful build occurred
-    # The generator exhausted without success
-    raise RuntimeError("Model stopped generating without producing a successful build")
