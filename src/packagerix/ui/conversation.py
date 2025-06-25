@@ -410,7 +410,7 @@ def handle_model_chat_build_results(chat: Chat):
         adapter = get_ui_adapter()
         current_chat = chat
 
-        while ends_with_function_call:
+        while True:  # Keep going until we're told to stop
             ends_with_function_call = False
             for item in current_chat.last_message.content:
                 if isinstance(item, StreamedStr):
@@ -446,6 +446,14 @@ def handle_model_chat_build_results(chat: Chat):
                     ends_with_function_call = True
             
             if ends_with_function_call:
+                current_chat = current_chat.submit()
+            else:
+                # Model didn't use a tool - prompt it to continue
+                from magentic import UserMessage
+                adapter.show_message(Message(Actor.COORDINATOR, "Prompting model to continue using tools..."))
+                current_chat = current_chat.add_message(
+                    UserMessage("Please continue using the evaluate_nix_code tool to test and fix the Nix code until it builds successfully. The system will tell you when to stop.")
+                )
                 current_chat = current_chat.submit()
     
     # Yield from the retry wrapper
