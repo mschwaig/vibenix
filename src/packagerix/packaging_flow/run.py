@@ -188,6 +188,8 @@ def package_project(output_dir=None, project_url=None):
             best = candidate
             build_iteration += 1
             eval_iteration = 1
+            build_results_generator = fix_build_error(candidate.code, candidate.result.error.error_message, 
+                                                    project_page, release_data, template_notes, additional_functions) 
         else:
             coordinator_message(f"Build iteration {build_iteration} did NOT made progress...")
             candidate = best
