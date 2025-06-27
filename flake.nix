@@ -42,10 +42,27 @@
           sourcePreference = "wheel";
         };
 
-        # Python package set
+        patchOverlay = final: prev: {
+          magentic = prev.magentic.overrideAttrs (old: {
+            postFixup = (old.postFixup or "") + ''
+              SITE_PACKAGES=$(echo $out/lib/python*/site-packages)
+              if [ -d "$SITE_PACKAGES/magentic" ]; then
+                echo "Patching magentic in $SITE_PACKAGES"
+                cd "$SITE_PACKAGES"
+                # Strip the 'src/' prefix from the patch paths
+                sed 's|src/magentic/|magentic/|g' ${./magentic.patch} | patch -p1
+              else
+                echo "Error: Could not find magentic package to patch"
+                exit 1
+              fi
+            '';
+          });
+        };
+
+        # Python package set with patched magentic
         pythonSet = (pkgs.callPackage pyproject-nix.build.packages {
           inherit python;
-        }).overrideScope overlay;
+        }).overrideScope (pkgs.lib.composeManyExtensions [ overlay patchOverlay ]);
 
         cli-dependencies = with pkgs; [ripgrep fzf jq nurl];
       in

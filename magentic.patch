@@ -1,0 +1,100 @@
+diff --git a/src/magentic/chat_model/stream.py b/src/magentic/chat_model/stream.py
+index c5b57c8..4620b8f 100644
+--- a/src/magentic/chat_model/stream.py
++++ b/src/magentic/chat_model/stream.py
+@@ -26,6 +26,9 @@ from magentic.streaming import (
+ ItemT = TypeVar("ItemT")
+ OutputT = TypeVar("OutputT")
+ 
++# Sentinel object to distinguish between None values and stream exhaustion
++_STREAM_ENDED = object()
++
+ 
+ class FunctionCallChunk(NamedTuple):
+     id: str | None
+@@ -123,7 +126,10 @@ class OutputStream(Generic[ItemT, OutputT]):
+     def __stream__(self) -> Iterator[StreamedStr | OutputT]:
+         # This works similarly to `itertools.groupby`
+         stream = apply(self._state.update, self._stream)
+-        current_item_ref = [next(stream)]
++        first_item = next(stream, _STREAM_ENDED)
++        if first_item is _STREAM_ENDED:
++            return  # Empty stream
++        current_item_ref = [first_item]
+         while current_item_ref:
+             current_item = current_item_ref.pop()
+             if self._parser.is_content(current_item):
+@@ -140,7 +146,10 @@ class OutputStream(Generic[ItemT, OutputT]):
+                     for item in chain([current_item], stream)
+                     for tool_call_chunk in self._parser.iter_tool_calls(item)
+                 )
+-                tool_call_ref = [next(tool_calls_stream)]
++                first_tool_call = next(tool_calls_stream, _STREAM_ENDED)
++                if first_tool_call is _STREAM_ENDED:
++                    continue  # No tool calls
++                tool_call_ref = [first_tool_call]
+                 while tool_call_ref:
+                     current_tool_call_chunk = tool_call_ref.pop()
+                     current_tool_call_id = current_tool_call_chunk.id
+@@ -180,8 +189,16 @@ class OutputStream(Generic[ItemT, OutputT]):
+                             tool_call_id=current_tool_call_id,
+                             validation_error=e,
+                         ) from e
+-            elif new_current_item := next(stream, None):
+-                current_item_ref.append(new_current_item)
++            else:
++                new_current_item = next(stream, _STREAM_ENDED)
++                if new_current_item is _STREAM_ENDED:
++                    # Stream is exhausted
++                    continue
++                elif new_current_item is None:
++                    # None value from stream, keep going
++                    continue
++                else:
++                    current_item_ref.append(new_current_item)
+ 
+     @property
+     def usage_ref(self) -> list[Usage]:
+@@ -244,7 +261,10 @@ class AsyncOutputStream(Generic[ItemT, OutputT]):
+ 
+     async def __stream__(self) -> AsyncIterator[AsyncStreamedStr | OutputT]:
+         stream = aapply(self._state.update, self._stream)
+-        current_item_ref = [await anext(stream)]
++        first_item = await anext(stream, _STREAM_ENDED)
++        if first_item is _STREAM_ENDED:
++            return  # Empty stream
++        current_item_ref = [first_item]
+         while current_item_ref:
+             current_item = current_item_ref.pop()
+             if self._parser.is_content(current_item):
+@@ -263,7 +283,10 @@ class AsyncOutputStream(Generic[ItemT, OutputT]):
+                     async for item in achain(async_iter([current_item]), stream)
+                     for tool_call_chunk in self._parser.iter_tool_calls(item)
+                 )
+-                tool_call_ref = [await anext(tool_calls_stream)]
++                first_tool_call = await anext(tool_calls_stream, _STREAM_ENDED)
++                if first_tool_call is _STREAM_ENDED:
++                    continue  # No tool calls
++                tool_call_ref = [first_tool_call]
+                 while tool_call_ref:
+                     current_tool_call_chunk = tool_call_ref.pop()
+                     current_tool_call_id = current_tool_call_chunk.id
+@@ -302,8 +325,16 @@ class AsyncOutputStream(Generic[ItemT, OutputT]):
+                             tool_call_id=current_tool_call_id,
+                             validation_error=e,
+                         ) from e
+-            elif new_current_item := await anext(stream, None):
+-                current_item_ref.append(new_current_item)
++            else:
++                new_current_item = await anext(stream, _STREAM_ENDED)
++                if new_current_item is _STREAM_ENDED:
++                    # Stream is exhausted
++                    continue
++                elif new_current_item is None:
++                    # None value from stream, keep going
++                    continue
++                else:
++                    current_item_ref.append(new_current_item)
+ 
+     @property
+     def usage_ref(self) -> list[Usage]:
