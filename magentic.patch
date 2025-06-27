@@ -1,3 +1,41 @@
+diff --git a/src/magentic/chat_model/base.py b/src/magentic/chat_model/base.py
+index 4adcd1f..ca098a3 100644
+--- a/src/magentic/chat_model/base.py
++++ b/src/magentic/chat_model/base.py
+@@ -113,7 +113,15 @@ def parse_stream(
+     output_type_origins = [get_origin(type_) or type_ for type_ in output_types]
+     # TODO: option to error/warn/ignore extra objects
+     # TODO: warn for degenerate output types ?
+-    obj = next(stream)
++    try:
++        obj = next(stream)
++    except StopIteration:
++        # Handle empty stream - return empty string if allowed, otherwise raise error
++        if str in output_type_origins:
++            return cast(OutputT, "")
++        if StreamedStr in output_type_origins:
++            return cast(OutputT, StreamedStr(iter([])))
++        raise ValueError("Received empty response from LLM")
+     if isinstance(obj, StreamedStr):
+         if StreamedResponse in output_type_origins:
+             return cast(OutputT, StreamedResponse(chain([obj], stream)))
+@@ -141,7 +149,15 @@ async def aparse_stream(
+ ) -> OutputT:
+     """Async version of `parse_stream`."""
+     output_type_origins = [get_origin(type_) or type_ for type_ in output_types]
+-    obj = await anext(stream)
++    try:
++        obj = await anext(stream)
++    except StopAsyncIteration:
++        # Handle empty stream - return empty string if allowed, otherwise raise error
++        if str in output_type_origins:
++            return cast(OutputT, "")
++        if AsyncStreamedStr in output_type_origins:
++            return cast(OutputT, AsyncStreamedStr(async_iter([])))
++        raise ValueError("Received empty response from LLM")
+     if isinstance(obj, AsyncStreamedStr):
+         if AsyncStreamedResponse in output_type_origins:
+             return cast(
 diff --git a/src/magentic/chat_model/stream.py b/src/magentic/chat_model/stream.py
 index c5b57c8..4620b8f 100644
 --- a/src/magentic/chat_model/stream.py
