@@ -81,8 +81,13 @@ class TerminalUIAdapter(UIAdapter):
         from packagerix.ui.logging_config import logger
         from magentic import StreamedStr
         
+        # Handle non-streaming responses
+        if isinstance(streamed_result, str):
+            logger.info(f"🤖 model: {streamed_result}")
+            return streamed_result
+            
         if not isinstance(streamed_result, StreamedStr):
-            raise TypeError(f"Expected StreamedStr, got {type(streamed_result)}")
+            raise TypeError(f"Expected StreamedStr or str, got {type(streamed_result)}")
         
         logger.info("🤖 model: ", end="")
         
@@ -178,7 +183,7 @@ def ask_model(prompt_text: str):
     3. Handles streaming responses
     4. Returns the complete string
     """
-    def decorator(func: Callable[..., StreamedStr]) -> Callable[..., str]:
+    def decorator(func: Callable[..., str]) -> Callable[..., str]:
         # Apply the prompt decorator using the same prompt text
         from magentic import prompt, StreamedStr
         prompt_decorated_func = prompt(prompt_text.replace("@model ", ""))(func)
@@ -408,16 +413,30 @@ def handle_model_chat(chat: Chat) -> str:
 
         while ends_with_function_call:
             ends_with_function_call = False
-            for item in current_chat.last_message.content:
-                if isinstance(item, StreamedStr):
-                    adapter.handle_model_streaming(item)
-                    output = item
-                    ends_with_function_call = False
-                elif isinstance(item, FunctionCall):
-                    function_call = item()
-                    adapter.show_message(Message(Actor.MODEL, function_call))
-                    current_chat = current_chat.add_message(ToolResultMessage(function_call, item._unique_id))
-                    ends_with_function_call = True
+            content = current_chat.last_message.content
+            
+            # If content is a plain string (non-streaming response), handle it directly
+            if isinstance(content, str):
+                adapter.show_message(Message(Actor.MODEL, content))
+                output = content
+                ends_with_function_call = False
+            else:
+                # Otherwise iterate over the content items
+                for item in content:
+                    if isinstance(item, StreamedStr):
+                        adapter.handle_model_streaming(item)
+                        output = item
+                        ends_with_function_call = False
+                    elif isinstance(item, str):
+                        # Handle non-streaming string responses
+                        adapter.show_message(Message(Actor.MODEL, item))
+                        output = item
+                        ends_with_function_call = False
+                    elif isinstance(item, FunctionCall):
+                        function_call = item()
+                        adapter.show_message(Message(Actor.MODEL, function_call))
+                        current_chat = current_chat.add_message(ToolResultMessage(function_call, item._unique_id))
+                        ends_with_function_call = True
             
             if ends_with_function_call:
                 current_chat = current_chat.submit()

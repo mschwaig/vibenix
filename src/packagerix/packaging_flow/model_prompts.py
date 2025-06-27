@@ -3,15 +3,14 @@
 This module contains all functions decorated with @ask_model that interact with the AI model.
 """
 
-from magentic import StreamedStr
 from packagerix.template.template_types import TemplateType
 from packagerix.ui.conversation import ask_model, ask_model_enum, handle_model_chat
 from packagerix.errors import NixBuildErrorDiff
-from magentic import Chat, UserMessage, StreamedResponse
+from magentic import Chat, UserMessage
 from packagerix.function_calls import search_nixpkgs_for_package, web_search, fetch_url_content, search_nix_functions
 
 
-def set_up_project(code_template: str, project_page: str, release_data: dict = None, template_notes: str = None) -> StreamedStr:
+def set_up_project(code_template: str, project_page: str, release_data: dict = None, template_notes: str = None) -> str:
     """Initial setup of a Nix package from a GitHub project."""
 
     prompt = """You are software packaging expert who can build any project using the Nix programming language.
@@ -59,7 +58,7 @@ Note: Even though the provided template uses the mkDerivation function, this is 
             template_notes_section=template_notes_section
         ))],
         functions=[search_nixpkgs_for_package, web_search, fetch_url_content, search_nix_functions],
-        output_types=[StreamedResponse],
+        output_types=[str],
     ).submit()
 
     return handle_model_chat(chat)
@@ -82,7 +81,7 @@ Here is the information form the project's GitHub page:
 
 {release_data}
 """)
-def summarize_github(project_page: str, release_data: dict = None) -> StreamedStr:
+def summarize_github(project_page: str, release_data: dict = None) -> str:
     """Summarize a GitHub project page for packaging purposes."""
     ...
 
@@ -97,7 +96,7 @@ def pick_template(project_page: str) -> TemplateType:
     ...
 
 
-def fix_build_error(code: str, error: str, project_page: str = None, release_data: dict = None, template_notes: str = None, additional_functions: list = []) -> StreamedStr:
+def fix_build_error(code: str, error: str, project_page: str = None, release_data: dict = None, template_notes: str = None, additional_functions: list = []) -> str:
     """Fix a build error in Nix code."""
     prompt = """You are software packaging expert who can build any project using the Nix programming language.
 
@@ -158,7 +157,7 @@ And some relevant metadata of the latest release:
             template_notes_section=template_notes_section
         ))],
         functions=[search_nixpkgs_for_package, web_search, fetch_url_content, search_nix_functions]+additional_functions,
-        output_types=[StreamedResponse],
+        output_types=[str],
     ).submit()
 
     return handle_model_chat(chat)
@@ -212,5 +211,5 @@ Note: Never put sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= in the code.
 Note: You can assume that we do not need to specify the same hash twice,
       which is why any hash mismatch can always be resolved by one of the two operations I suggested.
 """)
-def fix_hash_mismatch(code: str, error: str) -> StreamedStr:
+def fix_hash_mismatch(code: str, error: str) -> str:
     ...
