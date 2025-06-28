@@ -16,6 +16,46 @@ from typing import Optional
 from functools import wraps
 import hashlib
 import json
+import logfire
+
+
+# Configure logfire to not send data
+#logfire.configure(send_to_logfire=False)
+
+# Configure mitmproxy if enabled
+if os.environ.get("PACKAGERIX_USE_MITMPROXY", "").lower() in ("true", "1", "yes"):
+    proxy_host = os.environ.get("MITMPROXY_HOST", "localhost")
+    proxy_port = os.environ.get("MITMPROXY_PORT", "8080")
+    proxy_url = f"http://{proxy_host}:{proxy_port}"
+    
+    os.environ['HTTP_PROXY'] = proxy_url
+    os.environ['HTTPS_PROXY'] = proxy_url
+    # Disable SSL verification for mitmproxy (it uses its own certificate)
+    os.environ['REQUESTS_CA_BUNDLE'] = ""
+    os.environ['CURL_CA_BUNDLE'] = ""
+    
+    logger.info(f"Configured to use mitmproxy at {proxy_url}")
+    logger.info("Note: SSL verification disabled for proxy interception")
+    
+    # Enable httpx debug logging if available
+    import logging
+    logging.basicConfig()
+    logging.getLogger("httpx").setLevel(logging.DEBUG)
+    logging.getLogger("httpcore").setLevel(logging.DEBUG)
+    
+    # Try to disable SSL verification for urllib3/requests
+    try:
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    except ImportError:
+        pass
+    
+    try:
+        import requests
+        from requests.packages.urllib3.exceptions import InsecureRequestWarning
+        requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+    except ImportError:
+        pass
 
 config.init()
 
@@ -24,6 +64,16 @@ from packagerix.parsing import cache
 # Check which backend we're using
 magentic_backend = os.environ.get("MAGENTIC_BACKEND", "litellm")
 logger.info(f"Using magentic backend: {magentic_backend}")
+
+# Configure litellm SSL verification based on mitmproxy setting
+if os.environ.get("PACKAGERIX_USE_MITMPROXY", "").lower() in ("true", "1", "yes"):
+    litellm.verify_ssl = False
+    logger.info("Disabled SSL verification in litellm for mitmproxy")
+    
+    # Force litellm to use httpx transport instead of aiohttp
+    # (httpx respects HTTP_PROXY env vars, aiohttp needs explicit config)
+    litellm.disable_aiohttp_transport = True
+    logger.info("Disabled aiohttp transport in litellm to ensure proxy usage")
 
 # Global variable to track if we're in UI mode
 _ui_mode = False
