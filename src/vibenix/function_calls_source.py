@@ -5,6 +5,7 @@ import shlex
 import os
 from magika import Magika
 from itertools import islice
+from vibenix.ccl_log import get_logger
 
 MAX_LINES_TO_READ = 500
 
@@ -51,6 +52,7 @@ def create_source_function_calls(store_path: str, prefix: str = "") -> List[Call
     def list_directory_contents(relative_path: str) -> str:
         f"""List contents of a relative directory within the {source_description} given its relative path to the root directory."""
         print(f"📞 Function called: {prefix}list_directory_contents with path: ", relative_path)
+        get_logger().log_function_call(f"{prefix}list_directory_contents", relative_path=relative_path)
         try:
             _validate_path(relative_path)
             # Use command ls -lha to list directory contents
@@ -66,6 +68,7 @@ def create_source_function_calls(store_path: str, prefix: str = "") -> List[Call
     def read_file_content(relative_path: str, line_offset: int = 0, number_lines_to_read: int = MAX_LINES_TO_READ) -> str:
         f"""Read the content of a file within the {source_description} given its relative path to the root directory."""
         print(f"📞 Function called: {prefix}read_file_content with path: ", relative_path)
+        get_logger().log_function_call(f"{prefix}read_file_content", relative_path=relative_path, line_offset=line_offset, number_lines_to_read=number_lines_to_read)
         try:
             path = _validate_path(relative_path)
             if not _is_text_file(path):
@@ -81,6 +84,7 @@ def create_source_function_calls(store_path: str, prefix: str = "") -> List[Call
     def detect_file_type_and_size(relative_path: str) -> str:
         f"""Detect the type and size of a file within the {source_description} using magika given its relative path to the root directory."""
         print(f"📞 Function called: {prefix}detect_file_type_and_size with path: ", relative_path)
+        get_logger().log_function_call(f"{prefix}detect_file_type_and_size", relative_path=relative_path)
         try:
             path = _validate_path(relative_path)
             if not path.exists():
@@ -137,6 +141,7 @@ def create_source_function_calls(store_path: str, prefix: str = "") -> List[Call
             custom_args: Optional custom ripgrep arguments to override defaults
         """
         print(f"📞 Function called: {prefix}search_in_files with pattern: '{pattern}', path: '{relative_path}'")
+        get_logger().log_function_call(f"{prefix}search_in_files", pattern=pattern, relative_path=relative_path, custom_args=custom_args)
         try:
             path = _validate_path(relative_path)
             

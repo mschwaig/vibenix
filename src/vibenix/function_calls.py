@@ -2,11 +2,13 @@ import subprocess
 import requests
 import json
 import os
+from vibenix.ccl_log import get_logger
 
 def search_nixpkgs_for_package(query: str) -> str:
     """Search the nixpkgs repository of Nix code for the given package"""
 
     print("📞 Function called: search_nixpkgs_for_package with query: ", query)
+    get_logger().log_function_call("search_nixpkgs_for_package", query=query)
     
     # Run nix search first, explicitly separate stdout and stderr
     nix_result = subprocess.run(
@@ -42,6 +44,7 @@ def web_search(query: str) -> str:
     """Perform a web search with a query"""
     
     print("📞 Function called: web_search with query: ", query)
+    get_logger().log_function_call("web_search", query=query)
     try:
         result = subprocess.run(["ddgr", "--json", query], text=True, capture_output=True, timeout=30)
         if result.returncode == 0 and result.stdout.strip():
@@ -58,6 +61,7 @@ def fetch_url_content(url: str) -> str:
     """Fetch HTML content from a URL"""
     
     print("📞 Function called: fetch_url_content with url: ", url)
+    get_logger().log_function_call("fetch_url_content", url=url)
     try:
         response = requests.get(url, timeout=30)
         response.raise_for_status()
@@ -69,6 +73,7 @@ def search_nix_functions(query: str) -> str:
     """Search for Nix builtin and library functions by name"""
     
     print("📞 Function called: search_nix_functions with query: ", query)
+    get_logger().log_function_call("search_nix_functions", query=query)
     
     try:
         # Get the path from environment variable

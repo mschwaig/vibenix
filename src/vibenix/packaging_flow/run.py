@@ -1,7 +1,9 @@
 """Business logic for vibenix using the coordinator pattern."""
 
 import subprocess
+import time
 from pydantic import BaseModel
+from pathlib import Path
 
 from vibenix.ui.conversation import ask_user,  coordinator_message, coordinator_error, coordinator_progress
 from vibenix.parsing import scrape_and_process, extract_updated_code, fetch_combined_project_data, fill_src_attributes
@@ -12,6 +14,7 @@ from vibenix.packaging_flow.user_prompts import get_project_url
 from vibenix import config
 from vibenix.errors import NixBuildErrorDiff, NixErrorKind, NixBuildResult
 from vibenix.function_calls_source import create_source_function_calls
+from vibenix.ccl_log import init_logger, get_logger, close_logger
 
 
 class Solution(BaseModel):
@@ -92,12 +95,19 @@ def read_fetcher_file(fetcher: str) -> str:
 
 def package_project(output_dir=None, project_url=None, revision=None, fetcher=None):
     """Main coordinator function for packaging a project."""
+    # Initialize CCL logger
+    log_file = Path(output_dir) / "vibenix.ccl" if output_dir else Path("vibenix.ccl")
+    ccl_logger = init_logger(log_file)
+    
     # Step 1: Get project URL (includes welcome message)
     if project_url is None:
         project_url = get_project_url()
     else:
         # When URL is provided via CLI, still show welcome but skip prompt
         coordinator_message("Welcome to vibenix!")
+    
+    # Log session start
+    ccl_logger.log_session_start(project_url)
 
     # Obtain the project fetcher
     if fetcher: 
@@ -140,6 +150,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     # Step 5: Load template
     template_type = pick_template(project_page)
     coordinator_message(f"Selected template: {template_type.value}")
+    ccl_logger.log_template_selected(template_type.value)
     template_filename = f"{template_type.value}.nix"
     template_path = config.template_dir / template_filename
     starting_template = template_path.read_text()
@@ -167,12 +178,17 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     # Inner loop: Evaluation error fixes (max 5 attempts)
     
     coordinator_progress("Testing the initial build...")
+    ccl_logger.log_build_iteration(0)
+    ccl_logger.log_build_attempt(0, 1, initial_code)
     initial_result = execute_build_and_add_to_stack(initial_code)
+    ccl_logger.log_build_result(0, 1, initial_result)
     best = Solution(code=initial_code, result=initial_result)
     
     # Check if initial build succeeded
     if best.result.success:
         coordinator_message("✅ Build succeeded on first try!")
+        ccl_logger.log_session_end(True, 1)
+        close_logger()
         if output_dir:
             save_package_output(best.code, project_url, output_dir)
         return best.code
@@ -185,9 +201,12 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     while True:
         coordinator_message(f"Build iteration {build_iteration} - attempting to fix error:")
         coordinator_message(f"```\n{candidate.result.error.error_message}\n```")
+        ccl_logger.log_build_iteration(build_iteration)
         
         # Inner loop: Fix evaluation errors with limited attempts
         while True:
+            ccl_logger.log_eval_iteration(build_iteration, eval_iteration)
+            
             # Fix the error based on type
             if candidate.result.error.type == NixErrorKind.HASH_MISMATCH:
                 coordinator_message("Hash mismatch detected, fixing...")
@@ -205,11 +224,15 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
             # Test the fix
             coordinator_progress(f"Iteration {build_iteration}: Testing fix attempt {eval_iteration}/{max_inner_attempts}...")
             prev_candidate_error_type = candidate.result.error.type
+            ccl_logger.log_build_attempt(build_iteration, eval_iteration, updated_code)
             new_result = execute_build_and_add_to_stack(updated_code)
+            ccl_logger.log_build_result(build_iteration, eval_iteration, new_result)
             candidate = Solution(code=updated_code, result=new_result)
             
             if candidate.result.success:
                 coordinator_message(f"✅ Build succeeded after {build_iteration} iterations!")
+                ccl_logger.log_session_end(True, build_iteration + 1)
+                close_logger()
                 if output_dir:
                     save_package_output(candidate.code, project_url, output_dir)
                 return candidate.code
@@ -228,6 +251,8 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
                 break
             if eval_iteration > max_inner_attempts:
                 coordinator_error(f"Failed to make progress within {max_inner_attempts} attempts.")
+                ccl_logger.log_session_end(False, build_iteration)
+                close_logger()
                 return None
     
         # TODO: Check progress using NixBuildErrorDiff and decide whether to continue
@@ -244,6 +269,8 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
 
         if build_iteration > 15:
             coordinator_error("Reached temporary build iteration limit.")
+            ccl_logger.log_session_end(False, build_iteration)
+            close_logger()
             return None
 
 
