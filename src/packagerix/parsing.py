@@ -190,6 +190,6 @@ def extract_updated_code(model_reply):
         logger.error(error_msg)
         raise ValueError(error_msg)
     elif len(matches) > 1:
-        logger.warning(f"Reply contained {len(matches)} quoted sections, using the first one")
+        logger.warning(f"Reply contained {len(matches)} quoted sections, using the last one")
     
-    return matches[0].group(1)
+    return matches[-1].group(1)
