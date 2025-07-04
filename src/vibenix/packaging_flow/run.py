@@ -264,7 +264,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
         new_result = execute_build_and_add_to_stack(updated_code)
         candidate = Solution(code=updated_code, result=new_result)
         
-        if new_result.error.type == NixErrorKind.BUILD_ERROR:
+        if not new_result.success and new_result.error.type == NixErrorKind.BUILD_ERROR:
             coordinator_message(f"Nix build result: {candidate.result.error.type}")
             eval_result = eval_progress(best.result, candidate.result, iteration)
             ccl_logger.log_progress_eval(iteration, eval_result)
