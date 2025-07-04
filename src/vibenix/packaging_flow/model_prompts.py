@@ -8,7 +8,7 @@ from vibenix.template.template_types import TemplateType
 from vibenix.ui.conversation import _retry_with_rate_limit, ask_model, ask_model_enum, handle_model_chat
 from vibenix.errors import NixBuildErrorDiff
 from magentic import Chat, UserMessage, StreamedResponse, FunctionCall
-from vibenix.function_calls import search_nixpkgs_for_package, search_nix_functions, consider_aborting
+from vibenix.function_calls import abort_packaging, search_nixpkgs_for_package, search_nix_functions, abort_packaging
 
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.files.main import ModelResponse
@@ -401,7 +401,7 @@ And some relevant metadata of the latest release:
             project_info_section=project_info_section,
             template_notes_section=template_notes_section
         ))],
-        functions=[search_nixpkgs_for_package, search_nix_functions, consider_aborting]+additional_functions,
+        functions=[search_nixpkgs_for_package, search_nix_functions, abort_packaging]+additional_functions,
         output_types=[StreamedResponse],
     )
 
@@ -413,7 +413,9 @@ def fix_build_error(code: str, error: str, project_page: str = None, release_dat
     """Fix a build error in Nix code."""
     prompt = """You are software packaging expert who can build any project using the Nix programming language.
 
-Your task is to fix the following error in the following Nix code, making only the necessary changes, avoiding other modifications or additions.
+Your task is to fix the following error in the following Nix code,
+or abort the packaging process if you identify why that a specific software cannot be packaged in nixpkgs.
+You do not have access to dependencies outside of nixpkgs, tools that are disallowed in nixpkgs, or flakes. 
 
 ```nix
 {code}
@@ -445,7 +447,9 @@ Notes:
 - If you search for a package using your tools, and you don't have a match, try again with another query or try a different tool.
 - Many build functions, like `mkDerivation` provide a C compiler and a matching libc. If you're missing libc anyways, the GNU libc package is called `glibc` in nixpkgs.
 - Do not produce a flatpak, or docker container and do not use tools related to theres technologies to produce your output. Use tools to find other more direct ways to build the project.
-- If you need packages from a package set like `python3Packages` or `qt6`, only add the package set at the top of the file and use `python3Packages.package_name` or `with python3Packages; [ package_name ]` to add the package."""
+- If you need packages from a package set like `python3Packages` or `qt6`, only add the package set at the top of the file and use `python3Packages.package_name` or `with python3Packages; [ package_name ]` to add the package.
+- If you fail to find some dependency using both nixpkgs package search and the avialble nixpkgs checkout, assume it is not available and abort. 
+"""
     # Include project information if available
     project_info_section = ""
     if project_page:
@@ -478,7 +482,7 @@ And some relevant metadata of the latest release:
             project_info_section=project_info_section,
             template_notes_section=template_notes_section
         ))],
-        functions=[search_nixpkgs_for_package, search_nix_functions, consider_aborting]+additional_functions,
+        functions=[search_nixpkgs_for_package, search_nix_functions, abort_packaging]+additional_functions,
         output_types=[StreamedResponse],
     )
     chat = _retry_with_rate_limit(chat.submit)

@@ -1,4 +1,5 @@
 import subprocess
+from typing import Literal
 import requests
 import json
 import os
@@ -82,7 +83,24 @@ def search_nix_functions(query: str) -> str:
         return "Error: fzf not found. Please ensure fzf is available in the environment."
     except Exception as e:
         return f"Error searching Nix functions: {str(e)}"
-    
+
+def abort_packaging(reason: Literal["BUILD_TOOL_NOT_IN_NIXPKGS", "BUILD_TOOL_VERSION_NOT_IN_NIXPKGS", "DEPENDENCY_NOT_IN_NIXPKGS", "PACKAGING_REQUIRES_PATCHING_OF_SOURCE", "BUILD_DOWNLOADS_FROM_NETWORK", "REQUIRES_SPECIAL_HARDWARE", "REQUIRES_PORT_OR_DOES_NOT_TARGET_LINUX"], precise_reason_note : str):
+    """Your should not further attempt to package software that is hard or problematic to package in Nix.
+
+    Instead you should use this function to abort the packaging process,
+    with one of the predetermined reasons, and provide some additional information.
+
+    This will help
+    - the developer of the software in making their software easier to package, or
+    - help allocate resources towards packaging missing dependenices, or
+    - make it easier to understand in terms of supply chain security.
+
+    Your additional note should be precise about the issue that you identified,
+    so call some functions to gather data ahead of time if required.
+    """
+    print("📞 Function called: abort_packaging with error: ", error)
+    print(f"packaging aborted\n{reason}\n{precise_reason_note}\n")
+    raise ValueError("BOOM")
 
 def consider_aborting(code: str, error: str):
     """Given the error message, ask an LLM if packaging should be aborted. Useful for complex errors."""
