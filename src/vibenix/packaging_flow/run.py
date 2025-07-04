@@ -208,99 +208,25 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     nixpkgs_functions = create_source_function_calls(nixpkgs_path, "nixpkgs_")
     additional_functions = project_functions + nixpkgs_functions
     
-    # Step 7: Nested build and fix loop
-    # Outer loop: Build iterations (unlimited, driven by progress)
-    # Inner loop: Evaluation error fixes (max 5 attempts)
-    
+    # Step 7: Agentic loop
     coordinator_progress("Testing the initial build...")
     initial_result = execute_build_and_add_to_stack(initial_code)
     best = Solution(code=initial_code, result=initial_result)
     last_successful = None
-    
-    # Log initial build result
-    ccl_logger.log_initial_build(initial_result)
-    
-    # Check if initial build succeeded
-    if best.result.success:
-        last_successful = best
-        coordinator_message("✅ Build succeeded on first try!")
-        best, completed = refine_package(best, summary)
-        from vibenix.packaging_flow.model_prompts import end_stream_logger
-        ccl_logger.log_session_end(True, 1, end_stream_logger.total_cost)
-        close_logger()
-        if completed == RefinementExit.ERROR:
-            coordinator_error("Refinement encountered an error. Returning to packaging loop.")
-        else:
-            if completed == RefinementExit.INCOMPLETE:
-                last_successful = best
-                coordinator_message("Refinement process reached max iterations.")
-            if output_dir:
-                save_package_output(best.code, project_page, output_dir)
-            return best.code
 
     # Log that we're starting iterations
     ccl_logger.log_before_iterations()
     
     iteration = 1
-    max_eval_without_success = 7
-    consecutive_eval_errors = 0
-    consecutive_rebuilds_without_progress = 0
-    max_consecutive_rebuilds_without_progress = 5
+    MAX_ITERATIONS = 40
     candidate = best
     
-    while True:
-        # Inner loop: Fix evaluation errors with limited attempts
-        while True:
-            coordinator_message(f"Iteration {iteration} - attempting to fix error:")
-            coordinator_message(f"```\n{candidate.result.error.error_message}\n```")
-            ccl_logger.log_iteration_start(iteration)
-            
-            # Fix the error based on type
-            if candidate.result.error.type == NixErrorKind.HASH_MISMATCH:
-                coordinator_message("Hash mismatch detected, fixing...")
-                coordinator_message(f"code:\n{candidate.code}\n")
-                coordinator_message(f"error:\n{candidate.result.error.error_message}\n")
-                fixed_response = fix_hash_mismatch(candidate.code, candidate.result.error.error_message)
-            else:
-                coordinator_message("Other error detected, fixing...")
-                coordinator_message(f"code:\n{candidate.code}\n")
-                coordinator_message(f"error:\n{candidate.result.error.error_message}\n")
-                fixed_response = fix_build_error(candidate.code, candidate.result.error.error_message, summary, release_data, template_notes, additional_functions)
-            
-            updated_code = extract_updated_code(fixed_response)
-            
-            # Test the fix
-            coordinator_progress(f"Iteration {iteration}: Testing fix attempt ...")
-            prev_candidate_error_type = candidate.result.error.type
-            new_result = execute_build_and_add_to_stack(updated_code)
-            ccl_logger.log_iteration_end(iteration, new_result)
-            candidate = Solution(code=updated_code, result=new_result)
-            
-            if candidate.result.success:
-                coordinator_message(f"✅ Build succeeded after {iteration} iterations!")
-                break
-            coordinator_message(f"Nix build result: {candidate.result.error.type}")
-            
-            iteration += 1
-            # Build still failed - check if we made progress or hit eval error
-            if candidate.result.error.type == NixErrorKind.EVAL_ERROR:
-                # Evaluation error - continue inner loop
-                consecutive_eval_errors += 1
-                coordinator_message(f"{candidate.result.error.type} ({max_eval_without_success - consecutive_eval_errors} attempts left, retrying...")
-            elif candidate.result.error.type == NixErrorKind.HASH_MISMATCH:
-                # Evaluation error - continue inner loop
-                consecutive_eval_errors += 1
-                coordinator_message(f"{candidate.result.error.type} ({max_eval_without_success - consecutive_eval_errors} attempts left, retrying...")
-            elif candidate.result.error.type == NixErrorKind.BUILD_ERROR:
-                consecutive_eval_errors = 0
-                break
-            if consecutive_eval_errors >= max_eval_without_success:
-                coordinator_error(f"Failed to make progress within {max_eval_without_success} attempts.")
-                from vibenix.packaging_flow.model_prompts import end_stream_logger
-                ccl_logger.log_session_end(False, iteration, end_stream_logger.total_cost)
-                close_logger()
-                return None
-    
+    while iteration <= MAX_ITERATIONS:
+        coordinator_message(f"Iteration {iteration}:")
+        coordinator_message(f"```\n{candidate.result.error.error_message}\n```")
+        ccl_logger.log_iteration_start(iteration)
+        
+        # Fix the error based on type
         if candidate.result.success:
             last_successful = candidate
             coordinator_message("Build succeeded! Refining package...")
@@ -320,43 +246,48 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
                 final_code = refined_candidate.code if completed != RefinementExit.ERROR else candidate.code
                 save_package_output(final_code, project_url, output_dir)
             return refined_candidate.code if completed != RefinementExit.ERROR else candidate.code
-
+        elif candidate.result.error.type == NixErrorKind.HASH_MISMATCH:
+            coordinator_message("Hash mismatch detected, fixing...")
+            coordinator_message(f"code:\n{candidate.code}\n")
+            coordinator_message(f"error:\n{candidate.result.error.error_message}\n")
+            fixed_response = fix_hash_mismatch(candidate.code, candidate.result.error.error_message)
+        else:
+            coordinator_message("Other error detected, fixing...")
+            coordinator_message(f"code:\n{candidate.code}\n")
+            coordinator_message(f"error:\n{candidate.result.error.error_message}\n")
+            fixed_response = fix_build_error(candidate.code, candidate.result.error.error_message, summary, release_data, template_notes, additional_functions)
+        
+        updated_code = extract_updated_code(fixed_response)
+            
+        # Test the fix
+        coordinator_progress(f"Iteration {iteration}: Testing fix attempt {iteration} of {MAX_ITERATIONS}...")
+        new_result = execute_build_and_add_to_stack(updated_code)
+        candidate = Solution(code=updated_code, result=new_result)
+        
+        coordinator_message(f"Nix build result: {candidate.result.error.type}")
         eval_result = eval_progress(best.result, candidate.result, iteration)
         ccl_logger.log_progress_eval(iteration, eval_result)
         
         if eval_result == NixBuildErrorDiff.PROGRESS:
             coordinator_message(f"Iteration {iteration} made progress...")
             best = candidate
-            consecutive_rebuilds_without_progress = 0
         else:
             coordinator_message(f"Iteration {iteration} did NOT made progress...")
             candidate = best
-            consecutive_rebuilds_without_progress += 1
             
-            if consecutive_rebuilds_without_progress >= max_consecutive_rebuilds_without_progress:
-                coordinator_error(f"Aborted: {consecutive_rebuilds_without_progress} consecutive rebuilds without progress.")
-                from vibenix.packaging_flow.model_prompts import end_stream_logger
-                if last_successful:
-                    coordinator_message("Returning last successful build.")
-                    ccl_logger.log_session_end(False, iteration, end_stream_logger.total_cost)
-                    close_logger()
-                    return last_successful.code
-                ccl_logger.log_session_end(False, iteration, end_stream_logger.total_cost)
-                close_logger()
-                return None
+        ccl_logger.log_iteration_end(iteration, new_result)
+        iteration += 1
 
-
-        if iteration > 30:
-            coordinator_error("Reached temporary build iteration limit.")
-            from vibenix.packaging_flow.model_prompts import end_stream_logger
-            if last_successful:
-                coordinator_message("Returning last successful build.")
-                ccl_logger.log_session_end(False, iteration, end_stream_logger.total_cost)
-                close_logger()
-                return last_successful.code
-            ccl_logger.log_session_end(False, iteration, end_stream_logger.total_cost)
-            close_logger()
-            return None
+    coordinator_error("Reached temporary build iteration limit.")
+    from vibenix.packaging_flow.model_prompts import end_stream_logger
+    if last_successful:
+        coordinator_message("Returning last successful build.")
+        ccl_logger.log_session_end(False, iteration, end_stream_logger.total_cost)
+        close_logger()
+        return last_successful.code
+    ccl_logger.log_session_end(False, iteration, end_stream_logger.total_cost)
+    close_logger()
+    return None
 
 
 def save_package_output(code: str, project_url: str, output_dir: str):
