@@ -217,18 +217,21 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     # Log that we're starting iterations
     ccl_logger.log_before_iterations()
     
-    iteration = 1
+    iteration = 0
     MAX_ITERATIONS = 40
     candidate = best
+    MAX_CONSECUTIVE_REBUILDS_WITHOUT_PROGRESS = 5
+    consecutive_rebuilds_without_progress = 0
+    MAX_CONSECUTIVE_NON_BUILD_ERRORS = 5
+    consecutive_non_build_errors = 0
     
-    while iteration <= MAX_ITERATIONS:
-        coordinator_message(f"Iteration {iteration}:")
+    while iteration < MAX_ITERATIONS and consecutive_rebuilds_without_progress < MAX_CONSECUTIVE_REBUILDS_WITHOUT_PROGRESS:
+        coordinator_message(f"Iteration {iteration + 1}:")
         coordinator_message(f"```\n{candidate.result.error.error_message}\n```")
         ccl_logger.log_iteration_start(iteration)
         
         # Fix the error based on type
         if candidate.result.success:
-            last_successful = candidate
             coordinator_message("Build succeeded! Refining package...")
             refined_candidate, completed = refine_package(candidate, summary)
             
@@ -272,20 +275,28 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
             if eval_result == NixBuildErrorDiff.PROGRESS:
                 coordinator_message(f"Iteration {iteration} made progress...")
                 best = candidate
+                consecutive_rebuilds_without_progress = 0
             else:
                 coordinator_message(f"Iteration {iteration} did NOT made progress...")
                 candidate = best
+                consecutive_rebuilds_without_progress += 1
+            consecutive_non_build_errors = 0
+        else:
+            consecutive_non_build_errors += 1
             
+        if consecutive_non_build_errors < MAX_CONSECUTIVE_NON_BUILD_ERRORS:
+            candidate = best
+            consecutive_non_build_errors = 0
         ccl_logger.log_iteration_end(iteration, new_result)
         iteration += 1
 
-    coordinator_error("Reached temporary build iteration limit.")
+    if consecutive_non_build_errors >= MAX_CONSECUTIVE_NON_BUILD_ERRORS:
+        coordinator_error(f"Aborted: {consecutive_rebuilds_without_progress} consecutive rebuilds without progress.")
+
+    else:
+        coordinator_error("Reached temporary build iteration limit.")
+    
     from vibenix.packaging_flow.model_prompts import end_stream_logger
-    if last_successful:
-        coordinator_message("Returning last successful build.")
-        ccl_logger.log_session_end(False, iteration, end_stream_logger.total_cost)
-        close_logger()
-        return last_successful.code
     ccl_logger.log_session_end(False, iteration, end_stream_logger.total_cost)
     close_logger()
     return None
