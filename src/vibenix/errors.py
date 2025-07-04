@@ -4,7 +4,6 @@ from enum import Enum
 from pydantic import BaseModel
 from typing import Optional
 
-
 class NixBuildErrorDiff(Enum):
     REGRESS = "REGRESS"
     PROGRESS = "PROGRESS"
@@ -24,3 +23,8 @@ class NixBuildResult(BaseModel):
     success: bool
     is_src_attr_only: bool
     error: Optional[NixError] = None
+
+class Solution(BaseModel):
+    """Represents a solution candidate with its code and build result."""
+    code: str
+    result: NixBuildResult

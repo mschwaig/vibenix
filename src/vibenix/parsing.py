@@ -192,7 +192,7 @@ def fetch_combined_project_data(url):
     return combined_data
 
 def extract_updated_code(model_reply):
-    pattern = r"^```nix\n(.*?)\n```$"
+    pattern = r"```nix\n(.*?)\n```$"
 
     matches = list(re.finditer(pattern, model_reply, re.DOTALL | re.MULTILINE))
     if len(matches) == 0:

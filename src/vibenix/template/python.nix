@@ -30,7 +30,7 @@ python3Packages.buildPythonApplication rec {
   ];
 
   pythonImportsCheck = [
-    ... # add correct package name here
+    # ... # add correct package name here
   ];
 
   # Optional: test dependencies

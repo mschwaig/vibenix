@@ -7,8 +7,8 @@ from magentic import StreamedStr
 from vibenix.template.template_types import TemplateType
 from vibenix.ui.conversation import _retry_with_rate_limit, ask_model, ask_model_enum, handle_model_chat
 from vibenix.errors import NixBuildErrorDiff
-from magentic import Chat, UserMessage, StreamedResponse
-from vibenix.function_calls import search_nixpkgs_for_package, search_nix_functions
+from magentic import Chat, UserMessage, StreamedResponse, FunctionCall
+from vibenix.function_calls import search_nixpkgs_for_package, search_nix_functions, consider_aborting
 
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.files.main import ModelResponse
@@ -51,6 +51,71 @@ class EndStreamLogger(CustomLogger):
 end_stream_logger = EndStreamLogger()
 litellm.callbacks = [end_stream_logger]
 
+
+class AbortResponse(Enum):
+    """Enum to represent the possible answers for whether to abort packaging."""
+    ABORT = "abort"
+    CONTINUE = "continue"
+
+def test_abort(code: str, error: str) -> FunctionCall | AbortResponse:
+    """Test if the packaging should be aborted based on the error message."""
+    prompt = """@model You are a software packaging expert who can build any project using the Nix programming language.
+
+Another expert agent on the matter is troubled and requires your assistance.
+
+Your task is to determine if the Nix packaging should be aborted, or continue, considering:
+    - the following packaging code;
+    - the respective error message;
+    - a following list of example cases where packaging should be aborted;
+    - information you can obtain using the tools at your disposal.
+
+Here is the Nix code:
+```nix
+{code}
+```
+
+Here is the error message:
+```text
+{error}
+```
+
+Here are some example cases where packaging should be aborted:
+```text
+- The required version of a build tool is not packaged yet in nixpkgs;
+- The build needs network access to do action X, see file Y for reference;
+- The build would require to pick, carry, or write patches for source code.
+- Any step that would require breaking the hermetic nature of Nix packaging, or that would involve a considerably high degree of complexity to implement (not a straight forward fix).
+```
+
+With the tools at your disposal for the task, you can: 
+- compare your approach with similar packages in nixpkgs;
+- look at relevant files in the project directory in the Nix store;
+- search for nixpkgs package names or functions in Noogle.
+
+"""
+
+    # Include template notes if available
+    template_notes_section = ""
+    if template_notes:
+        template_notes_section = f"""Here are some notes about this template to help you package this type of project:
+```
+{template_notes}
+```
+"""
+
+    chat = Chat(
+        messages=[UserMessage(prompt.format(
+            code_template=code_template, 
+            project_page=project_page, 
+            release_data=release_data,
+            template_notes_section=template_notes_section
+        ))],
+        functions=[search_nixpkgs_for_package, search_nix_functions],
+        output_types=[StreamedResponse],
+    )
+    chat = _retry_with_rate_limit(chat.submit)
+
+    return handle_model_chat(chat)
 
 def set_up_project(code_template: str, project_page: str, release_data: dict = None, template_notes: str = None) -> StreamedStr:
     """Initial setup of a Nix package from a GitHub project."""
@@ -179,7 +244,7 @@ def get_feedback(code: str, log: str, project_page: str = None, release_data: di
 
 The following Nix code successfuly builds the respective project.
 
-Your task is to identify if there exist concrete improvements to the packaging code, namely:
+Your task is to identify if there are concrete improvements to be made to the packaging code, namely:
     1. Ensure a reasonable coding style, removing unnecessary comments and unused code, such as dangling template snippets;
     2. Identify unused dependencies. These can be further verified to be unnecessary by checking against build instructions in the project page, local files, etc.;
     3. Identify missing dependencies, mentioned in the project page, local files, etc.;
@@ -190,7 +255,8 @@ Your task is to identify if there exist concrete improvements to the packaging c
 Among the tools at your disposal for the task, you can: 
 - compare your approach with similar packages in nixpkgs;
 - look at relevant files in the project directory in the Nix store;
-- search for nixpkgs package names or functions in Noogle.
+- search for nixpkgs package names or functions in Noogle;
+- check if the packaging should be aborted.
 
 Above improving the package, prioritize not breaking the build.
 Make extensive use of the available tools to verify your feedback before making assumptions.
@@ -214,8 +280,9 @@ Here is the last build output:
 Notes:
 - The meta attribute is irrelevant, do not include it.
 - Do not attempt to generate the full updated packaging code, only provide feedback on the existing code.
-- Do not access the project's online git repository, such as GitHub, and instead browse the local files in the Nix store.
+- Do not change any arguments of fetchFromGitHub or another fetcher. Do not change any hash or rev for that matter.
 - Only test the execution of GUI programs under a virtual display environment when necessary, that is, when a CLI-only iteraction is not possible.
+- For the execution test, only test a project-specific feature if you have exhausted all other possible feedback and if you are confident you can make a small and correct test, otherwise make a generic test.
 - Your feedback needs to be concise, concrete to the specific project source, and follow the given format:
 ```text
 # <1. improvement title>
@@ -295,6 +362,7 @@ Among the tools at your disposal for the task, you can:
     - compare your approach with similar packages in nixpkgs;
     - look at relevant files in the project directory in the Nix store;
     - search for nixpkgs packages names or functions in Noogle.
+    - check if the packaging should be aborted.
 
 Note: The meta attribute is irrelevant, do not include it.
 Note: Do not change any other arguments of fetchFromGitHub or another fetcher if it has an actual hash already.
@@ -333,7 +401,7 @@ And some relevant metadata of the latest release:
             project_info_section=project_info_section,
             template_notes_section=template_notes_section
         ))],
-        functions=[search_nixpkgs_for_package, search_nix_functions]+additional_functions,
+        functions=[search_nixpkgs_for_package, search_nix_functions, consider_aborting]+additional_functions,
         output_types=[StreamedResponse],
     )
 
@@ -360,7 +428,7 @@ Error:
 
 {template_notes_section}
 
-If the error message does not give you enough information to make progress, and to verify your actions, look at relevant files in the proejct directory,
+If the error message does not give you enough information to make progress, and to verify your actions, look at relevant files in the project directory,
 and try to compare your approach with similar packages in nixpkgs.
 
 Known errors:
@@ -369,13 +437,11 @@ Known errors:
    The package in question might now be available nixpkgs, might be avilable under a different name, or might be part of a package set only.
    Use tools to find the package or other code that depends on the same package.
 Notes:
-- Nothing in the meta attribute of a derivation has any impact on its build output, so do not provide a meta attribute.
-- Do not access the project's online git repository, such as GitHub, and instead browse the local files in the Nix store.
-- Do not change any other arguments of fetchFromGitHub or another fetcher if it has an actual hash already.
 - Your reply should contain exactly one code block with the updated Nix code.
-- If you need to introduce a new hash, use lib.fakeHash as a placeholder, and automated process will replace this with the actual hash.
+- Nothing in the meta attribute of a derivation has any impact on its build output, so do not provide a meta attribute.
+- Under NO CIRCUMSTANCE you are permitted to change any arguments of fetchFromGitHub or another fetcher if it has an actual hash already.
 - Never replace existing hashes with `lib.fakeHash` or otherwise modify existing hashes.
-- 'lib.customisation.callPackageWith: Function called without required argument... usually means you've misjudged the package's name, or the package does not exist.
+- If you need to introduce a new hash, use lib.fakeHash as a placeholder, and automated process will replace this with the actual hash.
 - If you search for a package using your tools, and you don't have a match, try again with another query or try a different tool.
 - Many build functions, like `mkDerivation` provide a C compiler and a matching libc. If you're missing libc anyways, the GNU libc package is called `glibc` in nixpkgs.
 - Do not produce a flatpak, or docker container and do not use tools related to theres technologies to produce your output. Use tools to find other more direct ways to build the project.
@@ -412,7 +478,7 @@ And some relevant metadata of the latest release:
             project_info_section=project_info_section,
             template_notes_section=template_notes_section
         ))],
-        functions=[search_nixpkgs_for_package, search_nix_functions]+additional_functions,
+        functions=[search_nixpkgs_for_package, search_nix_functions, consider_aborting]+additional_functions,
         output_types=[StreamedResponse],
     )
     chat = _retry_with_rate_limit(chat.submit)

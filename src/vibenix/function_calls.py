@@ -83,3 +83,22 @@ def search_nix_functions(query: str) -> str:
     except Exception as e:
         return f"Error searching Nix functions: {str(e)}"
     
+
+def consider_aborting(code: str, error: str):
+    """Given the error message, ask an LLM if packaging should be aborted. Useful for complex errors."""
+    print("📞 Function called: consider_aborting with error: ", error)
+    get_logger().log_function_call("consider_aborting", error=error)
+    
+    from vibenix.packaging_flow.model_prompts import test_abort, AbortResponse
+
+    response = test_abort(code, error) # TODO change prompt name to somethign better and
+    if isinstance(response, AbortResponse):
+        if response.ABORT:
+            print("🚨 Consider Abort: Aborting packaging...")
+            exit(0) # TODO Im not sure how to end packaging gracefuly from a function call
+        elif response.CONTINUE:
+            print("✅ Consider Abort: Continuing packaging...")
+            return False
+
+    print("❗ Unexpected response type from test_abort: ", type(response))
+    return False

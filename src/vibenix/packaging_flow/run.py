@@ -8,17 +8,13 @@ from vibenix.ui.conversation import ask_user,  coordinator_message, coordinator_
 from vibenix.parsing import scrape_and_process, extract_updated_code, fetch_combined_project_data, fill_src_attributes
 from vibenix.flake import init_flake
 from vibenix.nix import eval_progress, execute_build_and_add_to_stack
-from vibenix.packaging_flow.model_prompts import pick_template, set_up_project, summarize_github, fix_build_error, fix_hash_mismatch, evaluate_code, refine_code, get_feedback, RefinementExit
+from vibenix.packaging_flow.model_prompts import pick_template, set_up_project, summarize_github, fix_build_error, fix_hash_mismatch, RefinementExit
 from vibenix.packaging_flow.user_prompts import get_project_url
+from vibenix.packaging_flow.evaluator import refine_package
 from vibenix import config
-from vibenix.errors import NixBuildErrorDiff, NixErrorKind, NixBuildResult
+from vibenix.errors import NixBuildErrorDiff, NixErrorKind, NixBuildResult, Solution
 from vibenix.function_calls_source import create_source_function_calls
 from vibenix.ccl_log import init_logger, get_logger, close_logger
-
-class Solution(BaseModel):
-    """Represents a solution candidate with its code and build result."""
-    code: str
-    result: NixBuildResult
 
 
 def get_nixpkgs_source_path() -> str:
@@ -35,7 +31,6 @@ def get_nixpkgs_source_path() -> str:
     except subprocess.CalledProcessError as e:
         coordinator_error(f"Failed to get nixpkgs source path: {e}")
         raise
-
 
 
 def analyze_project(project_page: str, release_data: dict = None) -> str:
@@ -89,46 +84,6 @@ def read_fetcher_file(fetcher: str) -> str:
     except Exception as e:
         coordinator_error(f"Error reading fetcher file: {e}")
         raise
-
-
-def refine_package(curr: Solution, project_page: str):
-    """Refinement cycle to improve the packaging."""
-    prev = curr
-    max_iterations = 3
-
-    for iteration in range(max_iterations):
-        # Get feedback
-        # TODO BUILD LOG IS NOT BEING PASSED!
-        feedback = get_feedback(curr.code, "", project_page)
-        coordinator_message(f"Refining package (iteration {iteration}/{max_iterations})...")
-        coordinator_message(f"Received feedback: {feedback}")
-
-        # Pass the feedback to the generator (refine_code)
-        response = refine_code(curr.code, feedback, project_page)
-        updated_code = extract_updated_code(response)
-        updated_res = execute_build_and_add_to_stack(updated_code)
-        attempt = Solution(code=updated_code, result=updated_res)
-        
-        # Verify the updated code still builds
-        if not attempt.result.success:
-            coordinator_message(f"Refinement caused a regression: {attempt.result.error.type}")
-            return attempt, RefinementExit.ERROR
-        else:
-            coordinator_message("Refined packaging code successfuly builds...")
-            prev = curr
-            curr = attempt
-
-        # Verify if the state of the refinement process
-        evaluation = evaluate_code(curr.code, prev.code, feedback)
-        if evaluation == RefinementExit.COMPLETE:
-            coordinator_message("Evaluator deems the improvements complete.")
-            return curr, RefinementExit.COMPLETE
-        elif evaluation == RefinementExit.INCOMPLETE:
-            coordinator_message("Evaluator suggests further improvements are needed.")
-        else:
-            coordinator_message("Evaluator deems there has been a regression in the packaging code. Reverting to previous state.")
-            curr = prev
-    return curr, RefinementExit.INCOMPLETE
 
 
 def package_project(output_dir=None, project_url=None, revision=None, fetcher=None):
@@ -225,12 +180,12 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
         last_successful = best
         coordinator_message("✅ Build succeeded on first try!")
         best, completed = refine_package(best, summary)
-        from vibenix.packaging_flow.model_prompts import end_stream_logger
-        ccl_logger.log_session_end(True, 1, end_stream_logger.total_cost)
-        close_logger()
         if completed == RefinementExit.ERROR:
             coordinator_error("Refinement encountered an error. Returning to packaging loop.")
         else:
+            from vibenix.packaging_flow.model_prompts import end_stream_logger
+            ccl_logger.log_session_end(True, 1, end_stream_logger.total_cost)
+            close_logger()
             if completed == RefinementExit.INCOMPLETE:
                 last_successful = best
                 coordinator_message("Refinement process reached max iterations.")
@@ -307,7 +262,10 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
             refined_candidate, completed = refine_package(candidate, summary)
             
             if completed == RefinementExit.ERROR:
-                coordinator_error("Refinement encountered an error. Returning pre-refinement solution.")
+                coordinator_error("Refinement encountered an error. Returning to packaging loop.")
+                candidate = refined_candidate
+                consecutive_rebuilds_without_progress = 0
+                continue
             elif completed == RefinementExit.INCOMPLETE:
                 coordinator_message("Refinement process reached max iterations.")
             
@@ -329,7 +287,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
             best = candidate
             consecutive_rebuilds_without_progress = 0
         else:
-            coordinator_message(f"Iteration {iteration} did NOT made progress...")
+            coordinator_message(f"Iteration {iteration} did NOT make progress...")
             candidate = best
             consecutive_rebuilds_without_progress += 1
             
