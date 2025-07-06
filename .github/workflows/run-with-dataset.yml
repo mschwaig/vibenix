@@ -180,28 +180,16 @@ jobs:
           if [ $exit_code -eq 0 ]; then
             # Command didn't fail, but we need to verify it actually created a package
             if [ -d output ]; then
-              # Debug: show what's in the output directory
-              echo "=== Contents of output directory ==="
-              ls -la output/ || echo "Failed to list output directory"
-              
-              package_name=$(find output -maxdepth 1 -type d ! -path output -printf '%f\n' 2>/dev/null | head -n1)
-              if [ -n "$package_name" ]; then
-                echo "Found package directory: $package_name"
-                # Debug: show what's in the package directory
-                echo "=== Contents of output/$package_name ==="
-                ls -la "output/$package_name/" || echo "Failed to list package directory"
-                
-                if [ -f "output/$package_name/package.nix" ]; then
-                  echo "status=success" >> $GITHUB_OUTPUT
-                  echo "package_name=$package_name" >> $GITHUB_OUTPUT
-                else
-                  echo "status=failed" >> $GITHUB_OUTPUT
-                  echo "Command succeeded but no package.nix was generated in output/$package_name"
-                  exit 1  # Fail the step
-                fi
+              # Find any package.nix file in subdirectories
+              package_nix_path=$(find output -name "package.nix" -type f | head -n1)
+              if [ -n "$package_nix_path" ]; then
+                # Extract package name from path (e.g., output/wikiman/package.nix -> wikiman)
+                package_name=$(basename $(dirname "$package_nix_path"))
+                echo "status=success" >> $GITHUB_OUTPUT
+                echo "package_name=$package_name" >> $GITHUB_OUTPUT
               else
                 echo "status=failed" >> $GITHUB_OUTPUT
-                echo "Command succeeded but output directory is empty"
+                echo "Command succeeded but no package.nix was generated"
                 exit 1  # Fail the step
               fi
             else
