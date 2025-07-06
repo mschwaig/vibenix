@@ -112,7 +112,7 @@ def refine_package(curr: Solution, project_page: str):
         # Verify the updated code still builds
         if not attempt.result.success:
             coordinator_message(f"Refinement caused a regression: {attempt.result.error.type}")
-            return attempt, RefinementExit.ERROR
+            return curr, RefinementExit.ERROR  # Return the last working version, not the broken attempt
         else:
             coordinator_message("Refined packaging code successfuly builds...")
             prev = curr
@@ -332,19 +332,24 @@ def save_package_output(code: str, project_url: str, output_dir: str):
     pname_match = re.search(r'pname\s*=\s*"([^"]+)"', code)
     if not pname_match:
         coordinator_error("Could not extract package name from code")
-        return
+        raise ValueError("Could not extract package name from code")
     
     package_name = pname_match.group(1)
     
-    # Create output directory structure
-    output_path = Path(output_dir) / package_name
-    output_path.mkdir(parents=True, exist_ok=True)
-    
-    # Save package.nix
-    package_file = output_path / "package.nix"
-    package_file.write_text(code)
-    
-    coordinator_message(f"Saved package to: {package_file}")
+    try:
+        # Create output directory structure
+        output_path = Path(output_dir) / package_name
+        output_path.mkdir(parents=True, exist_ok=True)
+        
+        # Save package.nix
+        package_file = output_path / "package.nix"
+        with open(package_file, 'w') as f:
+            f.write(code)
+
+        coordinator_message(f"Saved package to: {package_file}")
+    except Exception as e:
+        coordinator_error(f"Failed to save package output: {e}")
+        raise
 
 
 def run_packaging_flow(output_dir=None, project_url=None, revision=None, fetcher=None):
