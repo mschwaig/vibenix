@@ -180,13 +180,28 @@ jobs:
           if [ $exit_code -eq 0 ]; then
             # Command didn't fail, but we need to verify it actually created a package
             if [ -d output ]; then
-              package_name=$(ls output | head -n1)
-              if [ -n "$package_name" ] && [ -f "output/$package_name/package.nix" ]; then
-                echo "status=success" >> $GITHUB_OUTPUT
-                echo "package_name=$package_name" >> $GITHUB_OUTPUT
+              # Debug: show what's in the output directory
+              echo "=== Contents of output directory ==="
+              ls -la output/ || echo "Failed to list output directory"
+              
+              package_name=$(ls output 2>/dev/null | head -n1)
+              if [ -n "$package_name" ]; then
+                echo "Found package directory: $package_name"
+                # Debug: show what's in the package directory
+                echo "=== Contents of output/$package_name ==="
+                ls -la "output/$package_name/" || echo "Failed to list package directory"
+                
+                if [ -f "output/$package_name/package.nix" ]; then
+                  echo "status=success" >> $GITHUB_OUTPUT
+                  echo "package_name=$package_name" >> $GITHUB_OUTPUT
+                else
+                  echo "status=failed" >> $GITHUB_OUTPUT
+                  echo "Command succeeded but no package.nix was generated in output/$package_name"
+                  exit 1  # Fail the step
+                fi
               else
                 echo "status=failed" >> $GITHUB_OUTPUT
-                echo "Command succeeded but no package.nix was generated"
+                echo "Command succeeded but output directory is empty"
                 exit 1  # Fail the step
               fi
             else
