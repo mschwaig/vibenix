@@ -54,7 +54,7 @@ class EndStreamLogger(CustomLogger):
 class TokenLimitEnforcer(CustomLogger):
     """Enforce token limit."""
 
-    def __init__(self, limit=32000):
+    def __init__(self, limit=64000):
         super().__init__()
         self.limit = limit
 
@@ -93,7 +93,7 @@ class TokenLimitEnforcer(CustomLogger):
             sys.exit(1)
 
 
-token_limit_enforcer = TokenLimitEnforcer(limit=32000)
+token_limit_enforcer = TokenLimitEnforcer(limit=64000)
 end_stream_logger = EndStreamLogger()
 litellm.callbacks = [token_limit_enforcer, end_stream_logger]
 
