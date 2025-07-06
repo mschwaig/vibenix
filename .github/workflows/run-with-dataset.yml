@@ -184,7 +184,7 @@ jobs:
               echo "=== Contents of output directory ==="
               ls -la output/ || echo "Failed to list output directory"
               
-              package_name=$(ls output 2>/dev/null | head -n1)
+              package_name=$(find output -maxdepth 1 -type d ! -path output -printf '%f\n' 2>/dev/null | head -n1)
               if [ -n "$package_name" ]; then
                 echo "Found package directory: $package_name"
                 # Debug: show what's in the package directory
