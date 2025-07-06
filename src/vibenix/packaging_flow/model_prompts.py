@@ -8,7 +8,7 @@ from vibenix.template.template_types import TemplateType
 from vibenix.ui.conversation import _retry_with_rate_limit, ask_model, ask_model_enum, handle_model_chat
 from vibenix.errors import NixBuildErrorDiff
 from magentic import Chat, UserMessage, StreamedResponse
-from vibenix.function_calls import search_nixpkgs_for_package_semantic, search_nixpkgs_for_package_literal, search_nix_functions
+from vibenix.function_calls import search_nixpkgs_for_package, search_nix_functions
 
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.files.main import ModelResponse
@@ -145,7 +145,7 @@ Note: Even though the provided template uses the mkDerivation function, this is 
             release_data=release_data,
             template_notes_section=template_notes_section
         ))],
-        functions=[search_nixpkgs_for_package_semantic, search_nixpkgs_for_package_literal, search_nix_functions],
+        functions=[search_nixpkgs_for_package, search_nix_functions],
         output_types=[StreamedResponse],
     )
     chat = _retry_with_rate_limit(chat.submit)
@@ -305,7 +305,7 @@ And some relevant metadata of the latest release:
             project_info_section=project_info_section,
             template_notes_section=template_notes_section
         ))],
-        functions=[search_nixpkgs_for_package_semantic, search_nixpkgs_for_package_literal, search_nix_functions]+additional_functions,
+        functions=[search_nixpkgs_for_package, search_nix_functions]+additional_functions,
         output_types=[StreamedResponse],
     )
     chat = _retry_with_rate_limit(chat.submit)
@@ -379,7 +379,7 @@ And some relevant metadata of the latest release:
             project_info_section=project_info_section,
             template_notes_section=template_notes_section
         ))],
-        functions=[search_nixpkgs_for_package_semantic, search_nixpkgs_for_package_literal, search_nix_functions]+additional_functions,
+        functions=[search_nixpkgs_for_package, search_nix_functions]+additional_functions,
         output_types=[StreamedResponse],
     )
 
@@ -458,7 +458,7 @@ And some relevant metadata of the latest release:
             project_info_section=project_info_section,
             template_notes_section=template_notes_section
         ))],
-        functions=[search_nixpkgs_for_package_semantic, search_nixpkgs_for_package_literal, search_nix_functions]+additional_functions,
+        functions=[search_nixpkgs_for_package, search_nix_functions]+additional_functions,
         output_types=[StreamedResponse],
     )
     chat = _retry_with_rate_limit(chat.submit)

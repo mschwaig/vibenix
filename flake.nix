@@ -34,9 +34,6 @@
           ${pkgs.jq}/bin/jq -r '.[].meta.title' ${noogle.packages.${system}.data-json} > $out
         '';
         
-        # Pre-computed package embeddings
-        packageEmbeddings = pkgs.callPackage ./nix/package-embeddings.nix { inherit nixpkgs; };
-        
         # Load the workspace
         workspace = uv2nix.lib.workspace.loadWorkspace { workspaceRoot = ./.; };
 
@@ -45,14 +42,10 @@
           sourcePreference = "wheel";
         };
 
-        # Python package set with torch from nixpkgs
+        # Python package set
         pythonSet = (pkgs.callPackage pyproject-nix.build.packages {
           inherit python;
-        }).overrideScope (final: prev: 
-          overlay final prev // {
-            torch = python.pkgs.torchWithoutCuda;
-          }
-        );
+        }).overrideScope overlay;
 
         cli-dependencies = with pkgs; [ripgrep fzf jq nurl];
       in
@@ -69,7 +62,6 @@
             postBuild = ''
               wrapProgram $out/bin/vibenix \
                 --set NOOGLE_FUNCTION_NAMES "${noogleFunctionNames}" \
-                --set NIXPKGS_EMBEDDINGS "${packageEmbeddings}/embeddings.pkl" \
                 --prefix PATH : "${pkgs.lib.makeBinPath cli-dependencies}"
             '';
           };
@@ -88,15 +80,10 @@
             # Path to preprocessed noogle function names
             NOOGLE_FUNCTION_NAMES = "${noogleFunctionNames}";
             
-            # Path to pre-computed package embeddings
-            NIXPKGS_EMBEDDINGS = "${packageEmbeddings}/embeddings.pkl";
-            
-            # Use only dependencies environment, not the built package, plus torch
+            # Use only dependencies environment, not the built package
             packages = [
               python
               (pythonSet.mkVirtualEnv "vibenix-dev-deps" workspace.deps.default)
-              python.pkgs.torchWithoutCuda
-              python.pkgs.sentence-transformers
             ];
 
             # Point to source files for development

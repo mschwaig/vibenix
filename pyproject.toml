@@ -24,7 +24,6 @@ dependencies = [
     "ddgr (>=2.2,<3.0)",
     "pytest>=8.4.1",
     "magika>=0.6.2",
-    "scikit-learn>=1.7.0",
 ]
 
 [project.scripts]
