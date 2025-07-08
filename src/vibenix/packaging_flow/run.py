@@ -8,8 +8,11 @@ from vibenix.ui.conversation import ask_user,  coordinator_message, coordinator_
 from vibenix.parsing import scrape_and_process, extract_updated_code, fetch_combined_project_data, fill_src_attributes
 from vibenix.flake import init_flake
 from vibenix.nix import eval_progress, execute_build_and_add_to_stack
-from vibenix.packaging_flow.model_prompts import set_up_project, fix_hash_mismatch, RefinementExit, classify_packaging_failure, PackagingFailure
-from vibenix.packaging_flow.model_prompts.migrated_functions import pick_template, summarize_github, fix_build_error, get_feedback, refine_code, analyze_package_failure, evaluate_code
+from vibenix.packaging_flow.model_prompts import (
+    pick_template, summarize_github, set_up_project, fix_build_error, fix_hash_mismatch,
+    evaluate_code, refine_code, get_feedback, RefinementExit, 
+    analyze_package_failure, classify_packaging_failure, PackagingFailure
+)
 from vibenix.packaging_flow.user_prompts import get_project_url
 from vibenix import config
 from vibenix.errors import NixBuildErrorDiff, NixErrorKind, NixBuildResult

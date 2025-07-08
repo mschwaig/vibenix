@@ -1,232 +1,141 @@
 """All model prompts for vibenix.
 
-This module contains all functions decorated with @ask_model that interact with the AI model.
+This module contains all functions that interact with the AI model using template-based prompts.
 """
+
+from enum import Enum
+from typing import List, Optional
 
 from magentic import StreamedStr
 from vibenix.template.template_types import TemplateType
-from vibenix.ui.conversation import _retry_with_rate_limit, ask_model, ask_model_enum, handle_model_chat
+from vibenix.ui.conversation_templated import ask_model_prompt
+from vibenix.tools.function_calls import (
+    search_nixpkgs_for_package_semantic,
+    search_nixpkgs_for_package_literal,
+    search_nix_functions,
+    search_nixpkgs_for_file
+)
 from vibenix.errors import NixBuildErrorDiff, LogDiff, FullLogDiff, ProcessedLogDiff
-from magentic import Chat, UserMessage, StreamedResponse, FunctionCall
-from vibenix.tools.function_calls import search_nixpkgs_for_package_semantic, search_nixpkgs_for_package_literal, search_nix_functions, search_nixpkgs_for_file
-from vibenix.packaging_flow.model_prompts.prompt_loader import get_prompt_loader
 
-from litellm.integrations.custom_logger import CustomLogger
-from litellm.files.main import ModelResponse, BaseModel
-import litellm
-from enum import Enum
-import sys
+# Re-export enums
+from vibenix.packaging_flow.model_prompts.enums import RefinementExit, PackagingFailure
 
-@ask_model_enum("""
-""")
+# Standard search functions for all prompts that need them
+SEARCH_FUNCTIONS = [
+    search_nixpkgs_for_package_semantic,
+    search_nixpkgs_for_package_literal,
+    search_nix_functions,
+    search_nixpkgs_for_file
+]
+
+
+@ask_model_prompt('pick_template.md')
 def pick_template(project_page: str) -> TemplateType:
+    """Select the appropriate template for a project."""
     ...
 
 
-@ask_model("""
-""")
+@ask_model_prompt('summarize_project.md')
 def summarize_github(project_page: str) -> StreamedStr:
     """Summarize a GitHub project page."""
     ...
 
 
-class RefinementExit(Enum):
-    """Enum to represent exit conditions for refinement/evaluation."""
-    ERROR = "error"
-    INCOMPLETE = "incomplete"
-    COMPLETE = "complete"
-
-
-@ask_model_enum("""
-""")
+@ask_model_prompt('refinement/evaluate_code.md')
 def evaluate_code(code: str, previous_code: str, feedback: str) -> RefinementExit:
     """Evaluate whether refinement feedback has been successfully implemented."""
     ...
 
 
-def get_feedback(code: str, log: str, project_page: str = None, template_notes: str = None, additional_functions: list = []) -> StreamedStr:
-    """Refine a nix package to remove unnecessary snippets, add missing code, and improve style."""
-    prompt = """
-"""
-
-    # Include project information if available
-    project_info_section = ""
-    if project_page:
-        project_info_section = f"""
-"""
-
-    # Include template notes if available
-    template_notes_section = ""
-    if template_notes:
-        template_notes_section = f"""
-"""
-
-    chat = Chat(
-        messages=[UserMessage(prompt.format(
-            code=code, 
-            log=log,
-            project_info_section=project_info_section,
-            template_notes_section=template_notes_section
-        ))],
-        functions=[search_nixpkgs_for_package_semantic, search_nixpkgs_for_package_literal, search_nix_functions, search_nixpkgs_for_file]+additional_functions,
-        output_types=[StreamedResponse],
-    )
-    chat = _retry_with_rate_limit(chat.submit)
-
-    return handle_model_chat(chat)
+@ask_model_prompt('refinement/get_feedback.md', functions=SEARCH_FUNCTIONS)
+def get_feedback(
+    code: str,
+    log: str,
+    project_page: Optional[str] = None,
+    template_notes: Optional[str] = None,
+    additional_functions: List = []
+) -> StreamedStr:
+    """Get feedback on a successfully built package."""
+    ...
 
 
-def refine_code(code: str, feedback: str, project_page: str = None, template_notes: str = None, additional_functions: list = []) -> StreamedStr:
-    """Refine a nix package to remove unnecessary snippets, add missing code, and improve style."""
-    prompt = """ """
-    # Include project information if available
-    project_info_section = ""
-    if project_page:
-        project_info_section = f"""Here is the information from the project's GitHub page:
-```text
-{project_page}
-```
-"""
-    if release_data:
-        project_info_section += f"""
-And some relevant metadata of the latest release:
-```
-{release_data}
-```
-"""
-
-    # Include template notes if available
-    template_notes_section = ""
-    if template_notes:
-        template_notes_section = f"""Here are some notes about this template to help you package this type of project:
-```
-{template_notes}
-```
-"""
-
-    chat = Chat(
-        messages=[UserMessage(prompt.format(
-            code=code,
-            feedback=feedback,
-            project_info_section=project_info_section,
-            template_notes_section=template_notes_section
-        ))],
-        functions=[search_nixpkgs_for_package_semantic, search_nixpkgs_for_package_literal, search_nix_functions, search_nixpkgs_for_file]+additional_functions,
-        output_types=[StreamedResponse],
-    )
-
-    chat = _retry_with_rate_limit(chat.submit)
-    return handle_model_chat(chat)
+@ask_model_prompt('refinement/refine_code.md', functions=SEARCH_FUNCTIONS)
+def refine_code(
+    code: str,
+    feedback: str,
+    project_page: Optional[str] = None,
+    template_notes: Optional[str] = None,
+    additional_functions: List = []
+) -> StreamedStr:
+    """Refine a nix package based on feedback."""
+    ...
 
 
-def fix_build_error(code: str, error: str, project_page: str = None, template_notes: str = None, additional_functions: list = []) -> StreamedStr:
+@ask_model_prompt('error_fixing/fix_build_error.md', functions=SEARCH_FUNCTIONS)
+def fix_build_error(
+    code: str,
+    error: str,
+    project_page: Optional[str] = None,
+    template_notes: Optional[str] = None,
+    additional_functions: List = []
+) -> StreamedStr:
     """Fix a build error in Nix code."""
-    prompt = """ """
-    # Include project information if available
-    project_info_section = ""
-    if project_page:
-        project_info_section = f"""Here is the information from the project's GitHub page:
-```text
-{project_page}
-```
-"""
+    ...
 
-    # Include template notes if available
-    template_notes_section = ""
-    if template_notes:
-        template_notes_section = f"""Here are some notes about this template to help you package this type of project:
-```
-{template_notes}
-```
-"""
 
-    chat = Chat(
-        messages=[UserMessage(prompt.format(
-            code=code,
-            error=error,
-            project_info_section=project_info_section,
-            template_notes_section=template_notes_section
-        ))],
-        functions=[search_nixpkgs_for_package_semantic, search_nixpkgs_for_package_literal, search_nix_functions, search_nixpkgs_for_file]+additional_functions,
-        output_types=[StreamedResponse],
-    )
-    chat = _retry_with_rate_limit(chat.submit)
-
-    return handle_model_chat(chat)
+@ask_model_prompt('error_fixing/fix_hash_mismatch.md')
+def fix_hash_mismatch(code: str, error: str) -> StreamedStr:
+    """Fix hash mismatch errors in Nix code."""
+    ...
 
 
 def evaluate_progress(log_diff: LogDiff) -> NixBuildErrorDiff:
     """Evaluate if the build made progress by comparing logs."""
-    
     if isinstance(log_diff, FullLogDiff):
-        # Create a dynamic function with the full log prompt
-        @ask_model_enum(""" """)
-        def _evaluate_full_logs(log_diff: FullLogDiff) -> NixBuildErrorDiff:
+        # Use the full log template for complete logs
+        @ask_model_prompt('progress_evaluation/evaluate_full_logs.md')
+        def _evaluate_full(previous_log: str, new_log: str) -> NixBuildErrorDiff:
             ...
-        
-        return _evaluate_full_logs(log_diff)
+        return _evaluate_full(log_diff.previous_log, log_diff.new_log)
     else:  # ProcessedLogDiff
-        # Create a dynamic function with the truncated log prompt
-        @ask_model_enum("""@model 
-""")
-        def _evaluate_truncated_logs(log_diff: ProcessedLogDiff) -> NixBuildErrorDiff:
+        # Use the truncated log template for processed logs
+        @ask_model_prompt('progress_evaluation/evaluate_truncated_logs.md')
+        def _evaluate_truncated(
+            previous_truncated_log: str,
+            new_truncated_log: str,
+            previous_log_hash: str,
+            new_log_hash: str
+        ) -> NixBuildErrorDiff:
             ...
-        
-        return _evaluate_truncated_logs(log_diff)
+        return _evaluate_truncated(
+            log_diff.previous_truncated_log,
+            log_diff.new_truncated_log,
+            log_diff.previous_log_hash,
+            log_diff.new_log_hash
+        )
 
-@ask_model("""@model """)
-def fix_hash_mismatch(code: str, error: str) -> StreamedStr:
-    ...
 
-
-class PackagingFailure(Enum):
-    """Represents a packaging failure with specific details."""
-    BUILD_TOOL_NOT_IN_NIXPKGS = "BUILD_TOOL_NOT_IN_NIXPKGS"
-    BUILD_TOOL_VERSION_NOT_IN_NIXPKGS = "BUILD_TOOL_VERSION_NOT_IN_NIXPKGS"
-    DEPENDENCY_NOT_IN_NIXPKGS = "DEPENDENCY_NOT_IN_NIXPKGS"
-    PACKAGING_REQUIRES_PATCHING_OF_SOURCE = "PACKAGING_REQUIRES_PATCHING_OF_SOURCE"
-    BUILD_DOWNLOADS_FROM_NETWORK = "BUILD_DOWNLOADS_FROM_NETWORK"
-    REQUIRES_SPECIAL_HARDWARE = "REQUIRES_SPECIAL_HARDWARE"
-    REQUIRES_PORT_OR_DOES_NOT_TARGET_LINUX = "REQUIRES_PORT_OR_DOES_NOT_TARGET_LINUX"
-    OTHER = "OTHER"
-
-@ask_model_enum("""@model 
-""")
+@ask_model_prompt('failure_analysis/classify_packaging_failure.md')
 def classify_packaging_failure(details: str) -> PackagingFailure:
     """Classify a packaging failure based on the provided details."""
     ...
 
-def analyze_package_failure(code: str, error: str, project_page: str = None, template_notes: str = None, additional_functions: list = []) -> StreamedStr:
-    """Analyze a package failure to determine the type of failure and describe it."""
-    prompt = """ """
-    # Include project information if available
-    project_info_section = ""
-    if project_page:
-        project_info_section = f"""Here is the information from the project's GitHub page:
-```text
-{project_page}
-```
-"""
 
-    # Include template notes if available
-    template_notes_section = ""
-    if template_notes:
-        template_notes_section = f"""Here are some notes about this template to help you package this type of project:
-```
-{template_notes}
-```
-"""
+@ask_model_prompt('failure_analysis/analyze_packaging_failure.md', functions=SEARCH_FUNCTIONS)
+def analyze_package_failure(
+    code: str,
+    error: str,
+    project_page: Optional[str] = None,
+    template_notes: Optional[str] = None,
+    additional_functions: List = []
+) -> StreamedStr:
+    """Analyze why packaging failed."""
+    ...
 
-    chat = Chat(
-        messages=[UserMessage(prompt.format(
-            code=code,
-            error=error,
-            project_info_section=project_info_section,
-            template_notes_section=template_notes_section
-        ))],
-        functions=[search_nixpkgs_for_package_semantic, search_nixpkgs_for_package_literal, search_nix_functions, search_nixpkgs_for_file]+additional_functions,
-        output_types=[StreamedResponse],
-    )
-    chat = _retry_with_rate_limit(chat.submit)
 
-    return handle_model_chat(chat)
+# Import set_up_project from separate module since it's not yet migrated
+from vibenix.packaging_flow.model_prompts.set_up_project import set_up_project
+
+# Import logger callbacks
+from vibenix.packaging_flow.litellm_callbacks import EndStreamLogger
+end_stream_logger = EndStreamLogger()
