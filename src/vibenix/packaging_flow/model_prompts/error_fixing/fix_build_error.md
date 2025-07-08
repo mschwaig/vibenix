@@ -3,17 +3,17 @@ You are software packaging expert who can build any project using the Nix progra
 Your task is to fix the following error in the following Nix code, making only the necessary changes, avoiding other modifications or additions.
 
 ```nix
-{code}
+{{ code }}
 ```
 
 Error:
 ```
-{error}
+{{ error }}
 ```
 
-{project_info_section}
+{% include 'snippets/project_info_section.md' %}
 
-{template_notes_section}
+{% include 'snippets/template_note_section.md' %}
 
 If the error message does not give you enough information to make progress, and to verify your actions, look at relevant files in the proejct directory,
 and try to compare your approach with similar packages in nixpkgs.

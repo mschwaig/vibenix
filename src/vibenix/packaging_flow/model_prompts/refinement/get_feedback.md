@@ -21,17 +21,17 @@ You should look at the build output in the Nix store to verify its validity.
 
 Here is the Nix code for you to evaluate:
 ```nix
-{code}
+{{ code }}
 ```
 
 Here is the last build output:
 ```
-{log}
+{{ log }}
 ```
 
-{project_info_section}
+{% include 'snippets/project_info_section.md' %}
 
-{template_notes_section}
+{% include 'snippets/template_note_section.md' %}
 
 Notes:
 - The meta attribute is irrelevant, do not include it.

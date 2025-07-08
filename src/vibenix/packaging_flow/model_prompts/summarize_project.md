@@ -10,7 +10,5 @@ Include information like
 Here is the information form the project's GitHub page:
 
 ```text
-{project_page}
+{{ project_page }}
 ```
-
-{release_data}

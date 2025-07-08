@@ -6,19 +6,19 @@ Your task is to improve the Nix package code, following the feedback provided.
 
 Here is the Nix code:
 ```nix
-{code}
+{{ code }}
 ```
 
 Here is the evaluator's feedback:
 ```
-{feedback}
+{{ feedback }}
 ```
 
 Only make the necessary changes to implement the feedback. Do not make any other other unrelated or unnecessary modifications or additions.
 
-{project_info_section}
+{% include 'snippets/project_info_section.md' %}
 
-{template_notes_section}
+{% include 'snippets/template_note_section.md' %}
 
 Among the tools at your disposal for the task, you can:
     - compare your approach with similar packages in nixpkgs;

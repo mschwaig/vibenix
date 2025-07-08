@@ -8,11 +8,12 @@ from vibenix.ui.conversation import ask_user,  coordinator_message, coordinator_
 from vibenix.parsing import scrape_and_process, extract_updated_code, fetch_combined_project_data, fill_src_attributes
 from vibenix.flake import init_flake
 from vibenix.nix import eval_progress, execute_build_and_add_to_stack
-from vibenix.packaging_flow.model_prompts import pick_template, set_up_project, summarize_github, fix_build_error, fix_hash_mismatch, evaluate_code, refine_code, get_feedback, RefinementExit, analyze_package_failure, classify_packaging_failure, PackagingFailure
+from vibenix.packaging_flow.model_prompts import set_up_project, fix_hash_mismatch, RefinementExit, classify_packaging_failure, PackagingFailure
+from vibenix.packaging_flow.model_prompts.migrated_functions import pick_template, summarize_github, fix_build_error, get_feedback, refine_code, analyze_package_failure, evaluate_code
 from vibenix.packaging_flow.user_prompts import get_project_url
 from vibenix import config
 from vibenix.errors import NixBuildErrorDiff, NixErrorKind, NixBuildResult
-from vibenix.function_calls_source import create_source_function_calls
+from vibenix.tools.function_calls_source import create_source_function_calls
 from vibenix.ccl_log import init_logger, get_logger, close_logger
 
 class Solution(BaseModel):
@@ -38,16 +39,16 @@ def get_nixpkgs_source_path() -> str:
 
 
 
-def analyze_project(project_page: str, release_data: dict = None) -> str:
+def analyze_project(project_page: str) -> str:
     """Analyze the project using the model."""
     # summarize_github already has the @ask_model decorator
-    return summarize_github(project_page, release_data)
+    return summarize_github(project_page)
 
 
-def create_initial_package(template: str, project_page: str, release_data: dict = None, template_notes: str = None) -> str:
+def create_initial_package(template: str, project_page: str, template_notes: str = None) -> str:
     """Create initial package configuration."""
     # set_up_project now has the @ask_model decorator that handles UI and streaming
-    result = set_up_project(template, project_page, release_data, template_notes)
+    result = set_up_project(template, project_page, template_notes)
     return extract_updated_code(result)
 
 
@@ -166,19 +167,11 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
         coordinator_error(f"Failed to fetch project page: {e}")
         return
     
-    # Step 2b: Fetch release data from GitHub API
-    release_data = None
-    try:
-        from vibenix.parsing import fetch_github_release_data
-        release_data = fetch_github_release_data(project_url)
-        if release_data:
-            coordinator_message("Found GitHub release information via API")
-    except Exception as e:
-        coordinator_message(f"Could not fetch release data: {e}")
+    # Step 2b: Release data fetching removed - no longer needed
     
     # Step 3: Analyze project
     coordinator_message("I found the project information. Let me analyze it.")
-    summary = analyze_project(project_page, release_data)
+    summary = analyze_project(project_page)
 
     # Step 4: Initialize flake
     coordinator_progress("Setting up a temporary Nix flake for packaging")
@@ -247,7 +240,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
             coordinator_message("Other error detected, fixing...")
             coordinator_message(f"code:\n{candidate.code}\n")
             coordinator_message(f"error:\n{candidate.result.error.truncated()}\n")
-            fixed_response = fix_build_error(candidate.code, candidate.result.error.truncated(), summary, release_data, template_notes, additional_functions)
+            fixed_response = fix_build_error(candidate.code, candidate.result.error.truncated(), summary, template_notes, additional_functions)
         
         updated_code = extract_updated_code(fixed_response)
             
@@ -312,7 +305,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
         else:
             coordinator_error(f"Reached MAX_ITERATIONS build iteration limit of {MAX_ITERATIONS}.")
     
-    details = analyze_package_failure(best.code, best.result.error.truncated(), summary, release_data, template_notes, additional_functions)
+    details = analyze_package_failure(best.code, best.result.error.truncated(), summary, template_notes, additional_functions)
     packaging_failure = classify_packaging_failure(details)
     if isinstance(packaging_failure, PackagingFailure):
         coordinator_message(f"Packaging failure type: {packaging_failure}\nDetails:\n{details}\n")

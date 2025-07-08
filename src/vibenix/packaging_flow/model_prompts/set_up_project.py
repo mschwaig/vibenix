@@ -1,4 +1,6 @@
-def set_up_project(code_template: str, project_page: str, release_data: dict = None, template_notes: str = None) -> StreamedStr:
+from magentic import StreamedStr
+
+def set_up_project(code_template: str, project_page: str, template_notes: str = None) -> StreamedStr:
     """Initial setup of a Nix package from a GitHub project."""
 
     prompt = """You are software packaging expert who can build any project using the Nix programming language.
@@ -15,11 +17,6 @@ This is the code template you have to fill out:
 Here is the information form the project's GitHub page:
 ```text
 {project_page}
-```
-
-And some relevant metadata of the latest release:
-```
-{release_data}
 ```
 
 Note: Nothing in the meta attribute of a derivation has any impact on its build output, so do not provide a meta attribute.

@@ -13,17 +13,17 @@ This task will help
 
 Here is the Nix code:
 ```nix
-{code}
+{{ code }}
 ```
 
 Error:
 ```
-{error}
+{{ error }}
 ```
 
-{project_info_section}
+{% include 'snippets/project_info_section.md' %}
 
-{template_notes_section}
+{% include 'snippets/template_note_section.md' %}
 
 Known errors:
 - `error: evaluation aborted with the following error message: 'lib.customisation.callPackageWith: Function called without required argument "package_name" at /nix/store/[...]`:

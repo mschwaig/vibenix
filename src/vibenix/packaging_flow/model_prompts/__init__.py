@@ -8,7 +8,8 @@ from vibenix.template.template_types import TemplateType
 from vibenix.ui.conversation import _retry_with_rate_limit, ask_model, ask_model_enum, handle_model_chat
 from vibenix.errors import NixBuildErrorDiff, LogDiff, FullLogDiff, ProcessedLogDiff
 from magentic import Chat, UserMessage, StreamedResponse, FunctionCall
-from vibenix.function_calls import search_nixpkgs_for_package_semantic, search_nixpkgs_for_package_literal, search_nix_functions, search_nixpkgs_for_file
+from vibenix.tools.function_calls import search_nixpkgs_for_package_semantic, search_nixpkgs_for_package_literal, search_nix_functions, search_nixpkgs_for_file
+from vibenix.packaging_flow.model_prompts.prompt_loader import get_prompt_loader
 
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.files.main import ModelResponse, BaseModel
@@ -22,14 +23,28 @@ def pick_template(project_page: str) -> TemplateType:
     ...
 
 
+@ask_model("""
+""")
+def summarize_github(project_page: str) -> StreamedStr:
+    """Summarize a GitHub project page."""
+    ...
+
+
 class RefinementExit(Enum):
     """Enum to represent exit conditions for refinement/evaluation."""
     ERROR = "error"
     INCOMPLETE = "incomplete"
     COMPLETE = "complete"
 
-# 2. Identify unused dependencies. These can be further verified to be unnecessary by checking against build instructions in the project page, local files, etc.;
-def get_feedback(code: str, log: str, project_page: str = None, release_data: dict = None, template_notes: str = None, additional_functions: list = []) -> StreamedStr:
+
+@ask_model_enum("""
+""")
+def evaluate_code(code: str, previous_code: str, feedback: str) -> RefinementExit:
+    """Evaluate whether refinement feedback has been successfully implemented."""
+    ...
+
+
+def get_feedback(code: str, log: str, project_page: str = None, template_notes: str = None, additional_functions: list = []) -> StreamedStr:
     """Refine a nix package to remove unnecessary snippets, add missing code, and improve style."""
     prompt = """
 """
@@ -38,13 +53,6 @@ def get_feedback(code: str, log: str, project_page: str = None, release_data: di
     project_info_section = ""
     if project_page:
         project_info_section = f"""
-"""
-        if release_data:
-            project_info_section += f"""
-And some relevant metadata of the latest release:
-```
-{release_data}
-```
 """
 
     # Include template notes if available
@@ -68,7 +76,7 @@ And some relevant metadata of the latest release:
     return handle_model_chat(chat)
 
 
-def refine_code(code: str, feedback: str, project_page: str = None, release_data: dict = None, template_notes: str = None, additional_functions: list = []) -> StreamedStr:
+def refine_code(code: str, feedback: str, project_page: str = None, template_notes: str = None, additional_functions: list = []) -> StreamedStr:
     """Refine a nix package to remove unnecessary snippets, add missing code, and improve style."""
     prompt = """ """
     # Include project information if available
@@ -111,7 +119,7 @@ And some relevant metadata of the latest release:
     return handle_model_chat(chat)
 
 
-def fix_build_error(code: str, error: str, project_page: str = None, release_data: dict = None, template_notes: str = None, additional_functions: list = []) -> StreamedStr:
+def fix_build_error(code: str, error: str, project_page: str = None, template_notes: str = None, additional_functions: list = []) -> StreamedStr:
     """Fix a build error in Nix code."""
     prompt = """ """
     # Include project information if available
@@ -120,13 +128,6 @@ def fix_build_error(code: str, error: str, project_page: str = None, release_dat
         project_info_section = f"""Here is the information from the project's GitHub page:
 ```text
 {project_page}
-```
-"""
-        if release_data:
-            project_info_section += f"""
-And some relevant metadata of the latest release:
-```
-{release_data}
 ```
 """
 
@@ -195,7 +196,7 @@ def classify_packaging_failure(details: str) -> PackagingFailure:
     """Classify a packaging failure based on the provided details."""
     ...
 
-def analyze_package_failure(code: str, error: str, project_page: str = None, release_data: dict = None, template_notes: str = None, additional_functions: list = []) -> StreamedStr:
+def analyze_package_failure(code: str, error: str, project_page: str = None, template_notes: str = None, additional_functions: list = []) -> StreamedStr:
     """Analyze a package failure to determine the type of failure and describe it."""
     prompt = """ """
     # Include project information if available
@@ -204,13 +205,6 @@ def analyze_package_failure(code: str, error: str, project_page: str = None, rel
         project_info_section = f"""Here is the information from the project's GitHub page:
 ```text
 {project_page}
-```
-"""
-        if release_data:
-            project_info_section += f"""
-And some relevant metadata of the latest release:
-```
-{release_data}
 ```
 """
 
