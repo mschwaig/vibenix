@@ -99,6 +99,11 @@ def handle_api_key_terminal(provider: Provider) -> bool:
     if check_api_key_valid(provider):
         use_existing = input(f"\nAPI key for {provider.display_name} is already configured. Use it? (y/n): ").strip().lower()
         if use_existing in ['y', 'yes', '']:
+            # Load the key from secure storage and set it in environment
+            from vibenix.secure_keys import get_api_key
+            api_key = get_api_key(provider.env_var)
+            if api_key:
+                os.environ[provider.env_var] = api_key
             return True
     
     # Get new API key
