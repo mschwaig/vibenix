@@ -76,7 +76,7 @@ class CCLLogger:
         seconds = elapsed % 60
         return f"{hours:02d}:{minutes:02d}:{seconds:06.3f}"
    
-    def _format_value(self, value: Any) -> str:
+    def _format_value(self, value: Any, extra_indent: int) -> str:
         """Format a value for Jinja2 template, handling multi-line strings.
         
         For multi-line values, returns the value with a newline prefix
@@ -85,8 +85,9 @@ class CCLLogger:
         value_str = str(value)
         if '\n' in value_str:
             lines = value_str.splitlines()
-            # Return newline, then each line indented by 8 spaces
-            return '\n' + '\n'.join('        ' + line for line in lines)
+            # I don't know yet why this extra + 2 is required here
+            line_start = ('\n' + ('  ' * (extra_indent + 2)))
+            return line_start + line_start.join(line for line in lines)
         else:
             return value_str
     
@@ -211,14 +212,16 @@ class CCLLogger:
             name = {{ prompt_name }}
             args =
               {% for key, value in args.items() %}
-              {{ key }} = {{ format_value(value) }}
+              {{ key }} = {{ format_value(value, 3) }}
               {% endfor %}
-            template = {{ format_value(value) }}
-            reply_chunks ="""), "  " * indent_level)
+            template = {{ format_value(template, 2) }}
+            reply_chunks =
+            """), "  " * indent_level)
         
         # Register the format_value function as a Jinja2 function
         template = self._jinja_env.from_string(template_str)
         output = template.render(
+            elapsed_time=self._elapsed_time(),
             prompt_name=prompt_name,
             args=prompt_args,
             template=prompt_template,
@@ -234,7 +237,7 @@ class CCLLogger:
         """Log one response chunk."""
         template_str = textwrap.indent(textwrap.dedent("""\
           = {{num}} =
-            text = {{ format_value(content) }}"""),
+            text = {{ format_value(content, 2) }}"""),
             "  " * indent_level)
         
         # Register the format_value function as a Jinja2 function
@@ -254,7 +257,7 @@ class CCLLogger:
         """Log one response chunk."""
         template_str = textwrap.indent(textwrap.dedent("""\
           = {{num}} =
-            function_call = {{ format_value(content) }}"""),
+            function_call = {{ format_value(content, 2) }}"""),
             "  " * indent_level)
         
         # Register the format_value function as a Jinja2 function
@@ -278,11 +281,9 @@ class CCLLogger:
         # Register the format_value function as a Jinja2 function
         template = self._jinja_env.from_string(template_str)
         output = template.render(
-            elapsed_time=self._elapsed_time(),
             num=num,
             type=_type,
             value=value,
-            format_value=self._format_value,
             spaces=indent_level * 2
         )
 
@@ -293,7 +294,8 @@ class CCLLogger:
     def prompt_end(self, indent_level: int):
         """Log the end of a model prompt."""
         template_str = textwrap.indent(textwrap.dedent("""\
-          end_at = {{ elapsed_time }}"""), "  " * (indent_level + 1))
+          end_at = {{ elapsed_time }}
+          """), "  " * (indent_level + 1))
         
         template = self._jinja_env.from_string(template_str)
         output = template.render(
@@ -312,7 +314,7 @@ class CCLLogger:
             name = {{ function_name }}
             args =
               {% for key, value in args.items() %}
-              {{ key }} = {{ format_value(value) }}
+              {{ key }} = {{ format_value(value, 2) }}
               {% endfor %}"""), "  " * indent_level)
         
         # Register the format_value function as a Jinja2 function
@@ -332,8 +334,9 @@ class CCLLogger:
     def _function_end(self, function_name: str, result: Any, indent_level: int):
         """Log the end of a function call with result."""
         template_str = textwrap.indent(textwrap.dedent("""\
-          result = {{ format_value(result) }}
-          end_at = {{ elapsed_time }}"""), "  " * (indent_level + 1))
+          result = {{ format_value(result, 2) }}
+          end_at = {{ elapsed_time }}
+          """), "  " * (indent_level + 1))
         
         template = self._jinja_env.from_string(template_str)
         output = template.render(
