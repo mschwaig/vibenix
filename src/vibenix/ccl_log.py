@@ -4,6 +4,7 @@ Structured logging in CCL (Categorical Configuration Language) format for Vibeni
 Based on: https://chshersh.com/blog/2025-01-06-the-most-elegant-configuration-language.html
 """
 
+from enum import Enum
 import textwrap
 import time
 from datetime import datetime
@@ -13,6 +14,7 @@ from dataclasses import dataclass, field
 from contextlib import contextmanager
 from jinja2 import Environment
 import functools
+from magentic import FunctionCall
 
 from .errors import NixBuildErrorDiff, NixBuildResult
 
@@ -200,19 +202,109 @@ class CCLLogger:
             self._write("output_tokens = " + str(output_tokens))
             self._write("total_tokens = " + str(input_tokens + output_tokens))
             self._write(f"cost = {iteration_cost:.6f}")
+
+    def prompt_begin(self, prompt_name: str, prompt_template: str, indent_level: int, prompt_args : Dict):
+        """Log the beginning of a model prompt."""
+        template_str = textwrap.indent(textwrap.dedent("""\
+          model_prompt =
+            start_at = {{ elapsed_time }}
+            name = {{ prompt_name }}
+            args =
+              {% for key, value in args.items() %}
+              {{ key }} = {{ format_value(value) }}
+              {% endfor %}
+            template = {{ format_value(value) }}
+            reply_chunks ="""), "  " * indent_level)
+        
+        # Register the format_value function as a Jinja2 function
+        template = self._jinja_env.from_string(template_str)
+        output = template.render(
+            prompt_name=prompt_name,
+            args=prompt_args,
+            template=prompt_template,
+            format_value=self._format_value,
+            spaces=indent_level * 2
+        )
+
+        self._file_handle.write(output)
+        if self.print_to_console:
+            print(output)
+
+    def reply_chunk_text(self, num: int, content : str, indent_level: int):
+        """Log one response chunk."""
+        template_str = textwrap.indent(textwrap.dedent("""\
+          = {{num}} =
+            text = {{ format_value(content) }}"""),
+            "  " * indent_level)
+        
+        # Register the format_value function as a Jinja2 function
+        template = self._jinja_env.from_string(template_str)
+        output = template.render(
+            num=num,
+            content=content,
+            format_value=self._format_value,
+            spaces=indent_level * 2
+        )
+
+        self._file_handle.write(output)
+        if self.print_to_console:
+            print(output)
     
-    def log_error(self, error_type: str, message: str, context: Optional[Dict[str, Any]] = None):
-        """Log an error with context."""
-        with self._section_begin("error =", 0):
-            self._write("elapsed = " + self._elapsed_time())
-            self._write("type = " + error_type)
-            self._write("message = " + message)
-            if context:
-                with self._section_begin("context =", 1):
-                    for key, value in context.items():
-                        self._write(f"{key} = {value}")
-    
-    def function_begin(self, function_name: str, indent_level: int, **kwargs):
+    def reply_chunk_function_call(self, num: int, content : str, indent_level: int):
+        """Log one response chunk."""
+        template_str = textwrap.indent(textwrap.dedent("""\
+          = {{num}} =
+            function_call = {{ format_value(content) }}"""),
+            "  " * indent_level)
+        
+        # Register the format_value function as a Jinja2 function
+        template = self._jinja_env.from_string(template_str)
+        output = template.render(
+            num=num,
+            spaces=indent_level * 2
+        )
+
+        self._file_handle.write(output)
+        if self.print_to_console:
+            print(output)
+
+    def reply_chunk_enum(self, num: int, _type : str, value : str, indent_level: int):
+        """Log one response chunk."""
+        template_str = textwrap.indent(textwrap.dedent("""\
+          = {{num}} =
+            enum = {{ type }}.{{ value }}"""),
+            "  " * indent_level)
+        
+        # Register the format_value function as a Jinja2 function
+        template = self._jinja_env.from_string(template_str)
+        output = template.render(
+            elapsed_time=self._elapsed_time(),
+            num=num,
+            type=_type,
+            value=value,
+            format_value=self._format_value,
+            spaces=indent_level * 2
+        )
+
+        self._file_handle.write(output)
+        if self.print_to_console:
+            print(output)
+
+    def prompt_end(self, indent_level: int):
+        """Log the end of a model prompt."""
+        template_str = textwrap.indent(textwrap.dedent("""\
+          end_at = {{ elapsed_time }}"""), "  " * (indent_level + 1))
+        
+        template = self._jinja_env.from_string(template_str)
+        output = template.render(
+            elapsed_time=self._elapsed_time(),
+        )
+        
+        self._file_handle.write(output)
+        if self.print_to_console:
+            print(output)
+
+    def _function_begin(self, function_name: str, indent_level: int, **kwargs):
         """Log the beginning of a function call."""
         template_str = textwrap.indent(textwrap.dedent("""\
           function_call =
@@ -237,7 +329,7 @@ class CCLLogger:
         if self.print_to_console:
             print(output)
     
-    def function_end(self, function_name: str, result: Any, indent_level: int):
+    def _function_end(self, function_name: str, result: Any, indent_level: int):
         """Log the end of a function call with result."""
         template_str = textwrap.indent(textwrap.dedent("""\
           result = {{ format_value(result) }}
@@ -264,7 +356,6 @@ def init_logger(log_file: Path, print_to_console: bool = True) -> CCLLogger:
     _logger = CCLLogger(log_file=log_file, print_to_console=print_to_console)
     return _logger
 
-
 def get_logger() -> CCLLogger:
     """Get the global CCL logger instance."""
     if _logger is None:
@@ -285,15 +376,12 @@ def log_function_call(function_name: str, indent_level: int = 2):
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            # Log function beginning
             logger = get_logger()
-            logger.function_begin(function_name, indent_level, **kwargs)
+            logger._function_begin(function_name, indent_level, **kwargs)
             
-            # Execute function
             result = func(*args, **kwargs)
             
-            # Log function end
-            logger.function_end(function_name, result, indent_level)
+            logger._function_end(function_name, result, indent_level)
             
             return result
         return wrapper
