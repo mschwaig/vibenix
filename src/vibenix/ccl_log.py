@@ -147,8 +147,8 @@ class CCLLogger:
         template_str = textwrap.indent(textwrap.dedent("""\
           select_template =
             template_type = {{ template_type }}
-            template = {{ format_value(template_content) }}\n
-            notes = {{ format_value(notes) }}\n"""), "  " * indent_level)
+            template = {{ format_value(template_content, 2) }}\n
+            notes = {{ format_value(notes, 2) }}\n"""), "  " * indent_level)
         
         # Register the format_value function as a Jinja2 function
         template = self._jinja_env.from_string(template_str)
@@ -168,8 +168,8 @@ class CCLLogger:
         """Log the initial build result."""
         template_str = textwrap.indent(textwrap.dedent("""\
           initial =
-            code = {{ format_value(code) }}\n
-            error = {{ format_value(error) }}\n"""), "  " * indent_level)
+            code = {{ format_value(code, 2) }}\n
+            error = {{ format_value(error, 2) }}\n"""), "  " * indent_level)
         
         # Register the format_value function as a Jinja2 function
         template = self._jinja_env.from_string(template_str)
@@ -262,7 +262,7 @@ class CCLLogger:
         """Log one response chunk."""
         template_str = textwrap.indent(textwrap.dedent("""\
           = {{num}} =
-            text = {{ format_value(content, 3) }}
+            text = {{ format_value(content, 4) }}
           """),
             "  " * indent_level)
         
@@ -381,7 +381,7 @@ class CCLLogger:
         template_str = textwrap.indent(textwrap.dedent("""\
           pin_fetcher =
             start_at = {{ elapsed_time }}
-            nurl_args = {% for value in args %}{{ format_value(value) }}  
+            nurl_args = {% for value in args %}{{ format_value(value, 2) }}  
             {% endfor %}
             fetcher =
             """), "  " * indent_level)
@@ -403,7 +403,7 @@ class CCLLogger:
         template_str = textwrap.indent(textwrap.dedent("""\
         summarize_project =
           summary =
-            {{ format_value(summary_str) }}\n"""), "  " * indent_level)
+            {{ format_value(summary_str, 2) }}\n"""), "  " * indent_level)
         template = self._jinja_env.from_string(template_str)
         output = template.render(
             summary_str=summary_str,
