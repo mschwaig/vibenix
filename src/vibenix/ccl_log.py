@@ -142,21 +142,46 @@ class CCLLogger:
             if total_cost is not None:
                 self._write(f"total_cost = {total_cost:.6f}")
     
-    def log_template_selected(self, template: str):
+    def log_template_selected(self, template_type: str, template_content: str, notes: str | None, indent_level: int = 0):
         """Log template selection."""
-        with self._section_begin("template-selected =", 0):
-            self._write("event = selected")
-            self._write("elapsed = " + self._elapsed_time())
-            self._write("name = " + template)
+        template_str = textwrap.indent(textwrap.dedent("""\
+          select_template =
+            template_type = {{ template_type }}
+            template = {{ format_value(template_content) }}\n
+            notes = {{ format_value(notes) }}\n"""), "  " * indent_level)
+        
+        # Register the format_value function as a Jinja2 function
+        template = self._jinja_env.from_string(template_str)
+        output = template.render(
+            template_type=template_type,
+            template_content=template_content,
+            notes=notes if notes else "",
+            format_value=self._format_value,
+        )
 
-    def log_initial_build(self, result: NixBuildResult):
+        self._file_handle.write(output)
+        if self.print_to_console:
+            print(output)
+        
+
+    def log_initial_build(self, code: str, result: NixBuildResult, indent_level: int = 0):
         """Log the initial build result."""
-        with self._section_begin("initial-build =", 0):
-            if result.success:
-                self._write("result = success")
-            elif result.error:
-                self._write("result = " + result.error.type.value)
-            self._write("elapsed = " + self._elapsed_time())
+        template_str = textwrap.indent(textwrap.dedent("""\
+          initial =
+            code = {{ format_value(code) }}\n
+            error = {{ format_value(error) }}\n"""), "  " * indent_level)
+        
+        # Register the format_value function as a Jinja2 function
+        template = self._jinja_env.from_string(template_str)
+        output = template.render(
+            code=code,
+            error=result.error.truncated() if not result.success else "",
+            format_value=self._format_value,
+        )
+
+        self._file_handle.write(output)
+        if self.print_to_console:
+            print(output)
 
     def log_before_iterations(self):
         """Log template selection."""
@@ -348,6 +373,45 @@ class CCLLogger:
         self._file_handle.write(output)
         if self.print_to_console:
             print(output)
+
+    def log_fetcher(self, fetcher: str, args: list, indent_level: int):
+        """Log fetcher user and arguments used to obtain it."""
+        template_str = textwrap.indent(textwrap.dedent("""\
+          pin_fetcher =
+            start_at = {{ elapsed_time }}
+            nurl_args = {% for value in args %}{{ format_value(value) }}  
+            {% endfor %}
+            fetcher =
+            """), "  " * indent_level)
+        fetcher = textwrap.indent(fetcher + "\n", "  " * (indent_level + 2))
+        template = self._jinja_env.from_string(template_str + fetcher)
+        output = template.render(
+            fetcher=fetcher,
+            args=args,
+            elapsed_time=self._elapsed_time(),
+            format_value=self._format_value
+        )
+        
+        self._file_handle.write(output)
+        if self.print_to_console:
+            print(output)
+
+    def log_project_summary(self, summary_str: str, indent_level: int = 0):
+        """Log the summary of the project."""
+        template_str = textwrap.indent(textwrap.dedent("""\
+        summarize_project =
+          summary =
+            {{ format_value(summary_str) }}\n"""), "  " * indent_level)
+        template = self._jinja_env.from_string(template_str)
+        output = template.render(
+            summary_str=summary_str,
+            format_value=self._format_value
+        )
+
+        self._file_handle.write(output)
+        if self.print_to_console:
+            print(output)
+
 
 # Global logger instance
 _logger: CCLLogger = None

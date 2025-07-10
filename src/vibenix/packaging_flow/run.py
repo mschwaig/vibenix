@@ -66,7 +66,11 @@ def run_nurl(url, rev=None):
             text=True,
             check=True
         )
-        return result.stdout.strip()
+        out = result.stdout.strip()
+        from vibenix.ccl_log import get_logger
+        ccl_logger = get_logger()
+        ccl_logger.log_fetcher(out, cmd[1:], 0)
+        return out
     except subprocess.CalledProcessError as e:
         error_output = e.stderr.lower()
         # Check for various rate limit indicators
@@ -161,6 +165,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     if fetcher: 
         coordinator_progress(f"Using provided fetcher: {fetcher}")
         fetcher = read_fetcher_file(fetcher)
+        ccl_logger.log_fetcher(fetcher, [], 0)
         if revision:
             coordinator_error("Ignoring revision parameter in favor of provided fetcher.")
     else:
@@ -181,6 +186,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     # Step 3: Analyze project
     coordinator_message("I found the project information. Let me analyze it.")
     summary = analyze_project(project_page)
+    ccl_logger.log_project_summary(summary)
 
     # Step 4: Initialize flake
     coordinator_progress("Setting up a temporary Nix flake for packaging")
@@ -190,7 +196,6 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     # Step 5: Load template
     template_type = pick_template(summary)
     coordinator_message(f"Selected template: {template_type.value}")
-    ccl_logger.log_template_selected(template_type.value)
     template_filename = f"{template_type.value}.nix"
     template_path = config.template_dir / template_filename
     starting_template = template_path.read_text()
@@ -199,6 +204,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     notes_filename = f"{template_type.value}.notes"
     notes_path = config.template_dir / notes_filename
     template_notes = notes_path.read_text() if notes_path.exists() else None
+    ccl_logger.log_template_selected(template_type.value, starting_template, template_notes)
 
     # Step 6.a: Manual src setup
     coordinator_message("Setting up the src attribute in the template...")
@@ -215,6 +221,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     initial_result = execute_build_and_add_to_stack(initial_code)
     best = Solution(code=initial_code, result=initial_result)
 
+    ccl_logger.log_initial_build(best.code, best.result)
     # Log that we're starting iterations
     ccl_logger.log_before_iterations()
     
