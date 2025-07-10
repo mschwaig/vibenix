@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from magentic import StreamedStr, Chat, FunctionCall, ToolResultMessage
 from magentic.chat_model.message import Usage
+from vibenix.ccl_log import get_logger
 
 # Type variable for function return types
 T = TypeVar('T')
@@ -296,10 +297,12 @@ def handle_model_chat(chat: Chat, tool_call_collector=None) -> tuple[str, Usage]
         while ends_with_function_call:
             ends_with_function_call = False
             last_message = current_chat.last_message
+            response_chunk_num = 1
             for item in last_message.content:
                 if isinstance(item, StreamedStr):
                     adapter.handle_model_streaming(item)
-                    output = item
+                    output = str(item)
+                    get_logger().reply_chunk_text(response_chunk_num, output, 4)
                 elif isinstance(item, FunctionCall):
                     # Capture tool call info before execution
                     if tool_call_collector is not None:
@@ -309,12 +312,14 @@ def handle_model_chat(chat: Chat, tool_call_collector=None) -> tuple[str, Usage]
                             'arguments': item.arguments
                         }
                         tool_call_collector.append(tool_info)
-                    
+
+                    get_logger().reply_chunk_function_call(response_chunk_num, 4)
                     function_call = item()
+
                     adapter.show_message(Message(Actor.MODEL, function_call))
                     current_chat = current_chat.add_message(ToolResultMessage(function_call, item._unique_id))
                     ends_with_function_call = True
-            
+                response_chunk_num = response_chunk_num + 1
             if ends_with_function_call:
                 current_chat = _retry_with_rate_limit(current_chat.submit)
 

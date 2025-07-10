@@ -262,7 +262,8 @@ class CCLLogger:
         """Log one response chunk."""
         template_str = textwrap.indent(textwrap.dedent("""\
           = {{num}} =
-            text = {{ format_value(content, 2) }}"""),
+            text = {{ format_value(content, 3) }}
+          """),
             "  " * indent_level)
         
         # Register the format_value function as a Jinja2 function
@@ -278,11 +279,11 @@ class CCLLogger:
         if self.print_to_console:
             print(output)
     
-    def reply_chunk_function_call(self, num: int, content : str, indent_level: int):
+    def reply_chunk_function_call(self, num: int, indent_level: int):
         """Log one response chunk."""
         template_str = textwrap.indent(textwrap.dedent("""\
           = {{num}} =
-            function_call = {{ format_value(content, 2) }}"""),
+          """),
             "  " * indent_level)
         
         # Register the format_value function as a Jinja2 function
@@ -300,7 +301,8 @@ class CCLLogger:
         """Log one response chunk."""
         template_str = textwrap.indent(textwrap.dedent("""\
           = {{num}} =
-            enum = {{ type }}.{{ value }}"""),
+            enum = {{ type }}.{{ value }}
+          """),
             "  " * indent_level)
         
         # Register the format_value function as a Jinja2 function
