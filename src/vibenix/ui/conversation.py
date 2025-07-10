@@ -294,10 +294,10 @@ def handle_model_chat(chat: Chat, tool_call_collector=None) -> tuple[str, Usage]
         current_chat = chat
         last_message = None
 
+        response_chunk_num = 1
         while ends_with_function_call:
             ends_with_function_call = False
             last_message = current_chat.last_message
-            response_chunk_num = 1
             for item in last_message.content:
                 if isinstance(item, StreamedStr):
                     adapter.handle_model_streaming(item)
