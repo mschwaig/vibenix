@@ -7,6 +7,7 @@ from enum import Enum
 from dataclasses import dataclass
 from datetime import datetime
 from magentic import StreamedStr, Chat, FunctionCall, ToolResultMessage
+from magentic.chat_model.message import Usage
 
 # Type variable for function return types
 T = TypeVar('T')
@@ -275,7 +276,7 @@ def _retry_with_rate_limit(func, *args, max_retries=20, base_delay=5, **kwargs):
                 raise
 
 
-def handle_model_chat(chat: Chat, tool_call_collector=None) -> str:
+def handle_model_chat(chat: Chat, tool_call_collector=None) -> tuple[str, Usage]:
     """Handle a model chat session with function calls and streaming responses.
     
     Args:
@@ -283,21 +284,22 @@ def handle_model_chat(chat: Chat, tool_call_collector=None) -> str:
         tool_call_collector: Optional list to collect tool calls made during this chat
         
     Returns:
-        The final string response from the model
+        A tuple of (response_text, usage) where usage contains token counts
     """
     def _chat_processing():
         output = None
         ends_with_function_call = True
         adapter = get_ui_adapter()
         current_chat = chat
+        last_message = None
 
         while ends_with_function_call:
             ends_with_function_call = False
-            for item in current_chat.last_message.content:
+            last_message = current_chat.last_message
+            for item in last_message.content:
                 if isinstance(item, StreamedStr):
                     adapter.handle_model_streaming(item)
                     output = item
-                    ends_with_function_call = False
                 elif isinstance(item, FunctionCall):
                     # Capture tool call info before execution
                     if tool_call_collector is not None:
@@ -316,7 +318,11 @@ def handle_model_chat(chat: Chat, tool_call_collector=None) -> str:
             if ends_with_function_call:
                 current_chat = _retry_with_rate_limit(current_chat.submit)
 
-        return str(output)
+        # Ensure we always have usage data
+        output_str = str(output)
+        if not last_message or not last_message.usage:
+            raise ValueError("No usage data available from model response")
+        return (output_str, last_message.usage)
     
     # Use retry wrapper for the entire chat processing
     return _chat_processing()

@@ -46,14 +46,32 @@
           sourcePreference = "wheel";
         };
 
-        # Python package set with torch from nixpkgs
+        # Patch overlay for magentic to add usage tracking
+        patchOverlay = final: prev: {
+          magentic = prev.magentic.overrideAttrs (old: {
+            postFixup = (old.postFixup or "") + ''
+              SITE_PACKAGES=$(echo $out/lib/python*/site-packages)
+              if [ -d "$SITE_PACKAGES/magentic" ]; then
+                echo "Patching magentic in $SITE_PACKAGES"
+                cd "$SITE_PACKAGES"
+                # Strip the 'src/' prefix from the patch paths
+                sed 's|src/magentic/|magentic/|g' ${./0001-add-usage-tracking.patch} | patch -p1
+              else
+                echo "Error: Could not find magentic package to patch"
+                exit 1
+              fi
+            '';
+          });
+        };
+
+        # Python package set with patched magentic and torch from nixpkgs
         pythonSet = (pkgs.callPackage pyproject-nix.build.packages {
           inherit python;
-        }).overrideScope (final: prev: 
-          overlay final prev // {
-            torch = python.pkgs.torchWithoutCuda;
-          }
-        );
+        }).overrideScope (pkgs.lib.composeManyExtensions [
+          overlay
+          patchOverlay
+          (final: prev: { torch = python.pkgs.torchWithoutCuda; })
+        ]);
 
         cli-dependencies = with pkgs; [ ripgrep fzf jq nurl nix-index-database.packages.${system}.nix-index-with-db ];
       in

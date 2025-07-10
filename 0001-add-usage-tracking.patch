@@ -1,0 +1,70 @@
+From 804f85ee07924c890b281aef2ba84ee1b78026f0 Mon Sep 17 00:00:00 2001
+From: Martin Schwaighofer <3856390+mschwaig@users.noreply.github.com>
+Date: Wed, 9 Jul 2025 00:25:56 +0200
+Subject: [PATCH] add usage tracking
+
+---
+ src/magentic/chat_model/litellm_chat_model.py |  6 ++++--
+ src/magentic/chat_model/stream.py             | 14 +++++++++++++-
+ 2 files changed, 17 insertions(+), 3 deletions(-)
+
+diff --git a/src/magentic/chat_model/litellm_chat_model.py b/src/magentic/chat_model/litellm_chat_model.py
+index 927d588..c7753c1 100644
+--- a/src/magentic/chat_model/litellm_chat_model.py
++++ b/src/magentic/chat_model/litellm_chat_model.py
+@@ -201,7 +201,8 @@ class LitellmChatModel(ChatModel):
+             parser=LitellmStreamParser(),
+             state=LitellmStreamState(),
+         )
+-        return AssistantMessage(parse_stream(stream, output_types))
++        content = parse_stream(stream, output_types)
++        return stream.to_assistant_message(content)
+ 
+     async def acomplete(
+         self,
+@@ -242,4 +243,5 @@ class LitellmChatModel(ChatModel):
+             parser=LitellmStreamParser(),
+             state=LitellmStreamState(),
+         )
+-        return AssistantMessage(await aparse_stream(stream, output_types))
++        content = await aparse_stream(stream, output_types)
++        return stream.to_assistant_message(content)
+diff --git a/src/magentic/chat_model/stream.py b/src/magentic/chat_model/stream.py
+index c5b57c8..d62c859 100644
+--- a/src/magentic/chat_model/stream.py
++++ b/src/magentic/chat_model/stream.py
+@@ -11,7 +11,7 @@ from magentic.chat_model.function_schema import (
+     FunctionSchema,
+     select_function_schema,
+ )
+-from magentic.chat_model.message import Message, Usage
++from magentic.chat_model.message import AssistantMessage, Message, Usage
+ from magentic.streaming import (
+     AsyncStreamedStr,
+     StreamedStr,
+@@ -187,6 +187,12 @@ class OutputStream(Generic[ItemT, OutputT]):
+     def usage_ref(self) -> list[Usage]:
+         return self._state.usage_ref
+ 
++    def to_assistant_message(self, content: Any) -> AssistantMessage[Any]:
++        """Create an AssistantMessage with usage data if available."""
++        if self.usage_ref:
++            return AssistantMessage._with_usage(content, self.usage_ref)
++        return AssistantMessage(content)
++
+ 
+ class AsyncOutputStream(Generic[ItemT, OutputT]):
+     """Async version of `OutputStream`."""
+@@ -308,3 +314,9 @@ class AsyncOutputStream(Generic[ItemT, OutputT]):
+     @property
+     def usage_ref(self) -> list[Usage]:
+         return self._state.usage_ref
++
++    def to_assistant_message(self, content: Any) -> AssistantMessage[Any]:
++        """Create an AssistantMessage with usage data if available."""
++        if self.usage_ref:
++            return AssistantMessage._with_usage(content, self.usage_ref)
++        return AssistantMessage(content)
+-- 
+2.49.0
+
