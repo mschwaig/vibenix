@@ -9,6 +9,7 @@ import inspect
 
 from magentic import Chat, UserMessage, StreamedResponse, StreamedStr
 from magentic.chat_model.message import Usage
+from vibenix.ccl_log import get_logger
 from vibenix.ui.conversation import (
     Message, Actor, get_ui_adapter, _retry_with_rate_limit, 
     handle_model_chat
@@ -60,10 +61,7 @@ def ask_model_prompt(template_path: str, functions: Optional[List[Callable]] = N
             # Special handling for additional_functions parameter
             additional_functions = template_context.pop('additional_functions', [])
 
-            print(f"Function: {func.__name__}") # print prompt function name
-            print(f"Template: {template_path}") # print prompt function template
-            print(f"Args: {template_context}") # print prompt function args
-            print()
+            get_logger().prompt_begin(func.__name__, template_path, 2, template_context)
             
             # Load and render the template
             prompt_loader = get_prompt_loader()
@@ -100,12 +98,8 @@ def ask_model_prompt(template_path: str, functions: Optional[List[Callable]] = N
                     tool_call_collector = template_context.get('tool_call_collector')
                     result, usage = handle_model_chat(submitted_chat, tool_call_collector)
                     
-                    # Log the response and usage data
-                    print(f"Response: {result[:100]}..." if len(result) > 100 else f"Response: {result}")
-                    print(f"Input tokens: {usage.input_tokens}")
-                    print(f"Output tokens: {usage.output_tokens}")
-                    print()
-                    
+                    get_logger().prompt_end(2)
+              
                     return result
                 else:
                     # For non-streaming (enum), we need to handle differently
@@ -121,15 +115,9 @@ def ask_model_prompt(template_path: str, functions: Optional[List[Callable]] = N
                         if result is not None:
                             adapter.show_message(Message(Actor.MODEL, str(result)))
                         
-                        # Log the response and usage data
-                        if assistant_message.usage:
-                            print(f"Response: {result}")
-                            print(f"Input tokens: {assistant_message.usage.input_tokens}")
-                            print(f"Output tokens: {assistant_message.usage.output_tokens}")
-                            print()
-                        else:
-                            print("Warning: No usage data available from model response")
-                        
+                        usage = assistant_message.usage
+                        get_logger().prompt_end(2)
+
                         return result
                     
                     # Use retry wrapper for the entire enum result function

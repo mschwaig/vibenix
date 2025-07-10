@@ -39,19 +39,19 @@ class EndStreamLogger(CustomLogger):
                 self.last_request_usage = usage
                 
                 # Log to CCL if logger is available
-                try:
-                    from vibenix.ccl_log import get_logger
-                    ccl_logger = get_logger()
-                    model = kwargs.get('model', 'unknown')
-                    ccl_logger.log_model_response(
-                        input_tokens=usage.prompt_tokens or 0,
-                        output_tokens=usage.completion_tokens or 0,
-                        cost=cost,
-                        response_type="model_response"
-                    )
-                except (ImportError, RuntimeError):
+                #try:
+                    #from vibenix.ccl_log import get_logger
+                    # ccl_logger = get_logger()
+                    # model = kwargs.get('model', 'unknown')
+                    # ccl_logger.log_model_response(
+                    #    input_tokens=usage.prompt_tokens or 0,
+                    #    output_tokens=usage.completion_tokens or 0,
+                    #    cost=cost,
+                    #    response_type="model_response"
+                    #)
+                #except (ImportError, RuntimeError):
                     # CCL logger not available (e.g., during initial setup)
-                    pass
+                #    pass
                     
             else:
                 if kwargs.get("response_cost") is not None:

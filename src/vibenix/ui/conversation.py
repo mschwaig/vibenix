@@ -320,8 +320,8 @@ def handle_model_chat(chat: Chat, tool_call_collector=None) -> tuple[str, Usage]
 
         # Ensure we always have usage data
         output_str = str(output)
-        if not last_message or not last_message.usage:
-            raise ValueError("No usage data available from model response")
+        #if not last_message or not last_message.usage:
+        #    raise ValueError("No usage data available from model response")
         return (output_str, last_message.usage)
     
     # Use retry wrapper for the entire chat processing
