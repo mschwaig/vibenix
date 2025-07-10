@@ -142,13 +142,29 @@ class CCLLogger:
             if total_cost is not None:
                 self._write(f"total_cost = {total_cost:.6f}")
     
-    def log_template_selected(self, template_type: str, template_content: str, notes: str | None, indent_level: int = 0):
+    def log_template_selected_begin(self, indent_level: int = 0):
         """Log template selection."""
         template_str = textwrap.indent(textwrap.dedent("""\
           select_template =
+          """), "  " * indent_level)
+        
+        # Register the format_value function as a Jinja2 function
+        template = self._jinja_env.from_string(template_str)
+        output = template.render(
+        )
+
+        self._file_handle.write(output)
+        if self.print_to_console:
+            print(output)
+
+
+    def log_template_selected_end(self, template_type: str, template_content: str, notes: str | None, indent_level: int = 0):
+        """Log template selection."""
+        template_str = textwrap.indent(textwrap.dedent("""\
             template_type = {{ template_type }}
-            template = {{ format_value(template_content, 2) }}\n
-            notes = {{ format_value(notes, 2) }}\n"""), "  " * indent_level)
+            template = {{ format_value(template_content, 2) }}
+            notes = {{ format_value(notes, 2) }}
+            """), "  " * (indent_level + 1))
         
         # Register the format_value function as a Jinja2 function
         template = self._jinja_env.from_string(template_str)
@@ -162,7 +178,6 @@ class CCLLogger:
         self._file_handle.write(output)
         if self.print_to_console:
             print(output)
-        
 
     def log_initial_build(self, code: str, result: NixBuildResult, indent_level: int = 0):
         """Log the initial build result."""
@@ -398,12 +413,24 @@ class CCLLogger:
         if self.print_to_console:
             print(output)
 
-    def log_project_summary(self, summary_str: str, indent_level: int = 0):
+    def log_project_summary_begin(self, indent_level: int = 0):
         """Log the summary of the project."""
         template_str = textwrap.indent(textwrap.dedent("""\
-        summarize_project =
-          summary =
-            {{ format_value(summary_str, 2) }}\n"""), "  " * indent_level)
+            summarize_project =
+            """), "  " * indent_level)
+        template = self._jinja_env.from_string(template_str)
+        output = template.render(
+        )
+
+        self._file_handle.write(output)
+        if self.print_to_console:
+            print(output)
+
+    def log_project_summary_end(self, summary_str: str, indent_level: int = 0):
+        """Log the summary of the project."""
+        template_str = textwrap.indent(textwrap.dedent("""\
+          summary = {{ format_value(summary_str, 2) }}
+          """), "  " * (indent_level + 1))
         template = self._jinja_env.from_string(template_str)
         output = template.render(
             summary_str=summary_str,

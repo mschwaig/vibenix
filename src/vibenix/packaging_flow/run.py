@@ -185,15 +185,16 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     
     # Step 3: Analyze project
     coordinator_message("I found the project information. Let me analyze it.")
+    ccl_logger.log_project_summary_begin()
     summary = analyze_project(project_page)
-    ccl_logger.log_project_summary(summary)
+    ccl_logger.log_project_summary_end(summary)
 
     # Step 4: Initialize flake
     coordinator_progress("Setting up a temporary Nix flake for packaging")
     init_flake()
     coordinator_message(f"Working on temporary flake at {config.flake_dir}")
     
-    # Step 5: Load template
+    ccl_logger.log_template_selected_begin()
     template_type = pick_template(summary)
     coordinator_message(f"Selected template: {template_type.value}")
     template_filename = f"{template_type.value}.nix"
@@ -204,7 +205,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     notes_filename = f"{template_type.value}.notes"
     notes_path = config.template_dir / notes_filename
     template_notes = notes_path.read_text() if notes_path.exists() else None
-    ccl_logger.log_template_selected(template_type.value, starting_template, template_notes)
+    ccl_logger.log_template_selected_end(template_type.value, starting_template, template_notes)
 
     # Step 6.a: Manual src setup
     coordinator_message("Setting up the src attribute in the template...")
