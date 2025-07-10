@@ -1,0 +1,22 @@
+start_at = {{ current_time - start_timestamp }}
+requests =
+  = 0 =
+    repsonse =
+      {{ model_response }}
+    input_tokens = {{ req_resp_input_token_count }}
+    output_tokens = {{ req_resp_output_token_count }}
+    cost = {{ req_resp_cost }}
+    end_at = {{ current_time - start_timestamp }}
+  = 1 =
+    repsonse =
+      {{ model_response }}
+    input_tokens = {{ req_resp_input_token_count }}
+    output_tokens = {{ req_resp_output_token_count }}
+    cost = {{ req_resp_cost }}
+    end_at = {{ current_time - start_timestamp }}
+total = 
+  req_count = {request_count}
+  input_tokens = {{ req_resp_input_token_count }}
+  output_tokens = {{ req_resp_output_token_count }}
+  cost = {{ req_resp_cost }}
+  end_at = {{ current_time - start_timestamp }}

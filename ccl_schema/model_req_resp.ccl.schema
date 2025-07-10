@@ -1,5 +1,6 @@
 start_at = {{ current_time - start_timestamp }}
 model_prompt =
+  name =
   args =
     {{ arg1_name }} = {{ arg1_value }}
     {{ arg2_name }} = {{ arg2_value }}
@@ -15,11 +16,7 @@ reply_chunks =
   = 2 =
     function_call =
       {{ include function_call.ccl.schema }}
-  = 0 =
-    text =
-    {{ last text chunk }}
-request_metadata =
-  input_tokens = {{ req_resp_input_token_count }}
-  output_tokens = {{ req_resp_output_token_count }}
-  cost = {{ req_resp_cost }}
+  = 3 =
+    {{ enum = {{ enumtype.enumvalue }} | text =
+    {{ last text chunk }} }}
 end_at = {{ current_time - start_timestamp }}
