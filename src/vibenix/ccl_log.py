@@ -354,11 +354,9 @@ class CCLLogger:
             spaces=indent_level * 2
         )
 
-        self._file_handle.write(output)
-        if self.print_to_console:
-            print(output)
+        return output # Return the output to be written later together with end result
     
-    def _function_end(self, function_name: str, result: Any, indent_level: int):
+    def _function_end(self, begin_log: str, function_name: str, result: Any, indent_level: int):
         """Log the end of a function call with result."""
         template_str = textwrap.indent(textwrap.dedent("""\
           result = {{ format_value(result, 2) }}
@@ -372,9 +370,9 @@ class CCLLogger:
             format_value=self._format_value
         )
         
-        self._file_handle.write(output)
+        self._file_handle.write(begin_log+output)
         if self.print_to_console:
-            print(output)
+            print(begin_log+output)
 
     def log_fetcher(self, fetcher: str, args: list, indent_level: int):
         """Log fetcher user and arguments used to obtain it."""
@@ -446,11 +444,11 @@ def log_function_call(function_name: str, indent_level: int = 2):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             logger = get_logger()
-            logger._function_begin(function_name, indent_level, **kwargs)
+            begin = logger._function_begin(function_name, indent_level, **kwargs)
             
             result = func(*args, **kwargs)
             
-            logger._function_end(function_name, result, indent_level)
+            logger._function_end(begin, function_name, result, indent_level)
             
             return result
         return wrapper
