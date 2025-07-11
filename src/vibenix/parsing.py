@@ -40,7 +40,6 @@ def scrape_and_process(url):
 
     return cleaned_text
 
-@cache.memoize()
 def fetch_github_release_data(url):
     """Fetch release data from GitHub API for the given repository URL."""
     # Parse the GitHub URL to extract owner and repo
@@ -65,40 +64,10 @@ def fetch_github_release_data(url):
     
     try:
         response = requests.get(api_url, headers={'Accept': 'application/vnd.github.v3+json'})
-        if response.status_code == 404:
-            # No releases found, try tags instead
-            logger.info(f"No releases found for {owner}/{repo}, trying tags")
-            tags_url = f"https://api.github.com/repos/{owner}/{repo}/tags"
-            tags_response = requests.get(tags_url, headers={'Accept': 'application/vnd.github.v3+json'})
-            if tags_response.status_code == 200:
-                tags = tags_response.json()
-                if tags:
-                    # Use the first (latest) tag
-                    latest_tag = tags[0]
-                    return {
-                        'tag_name': latest_tag['name'],
-                        'tarball_url': latest_tag['tarball_url'],
-                        'zipball_url': latest_tag['zipball_url'],
-                        'commit': latest_tag['commit'],
-                        'source': 'tags'
-                    }
-            return None
-        
         response.raise_for_status()
         release_data = response.json()
-        
-        # Extract relevant information
-        # Only include auto-generated GitHub artifacts (tarball/zipball URLs)
-        # Exclude user-uploaded assets for security reasons
-        return {
-            'tag_name': release_data.get('tag_name'),
-            'name': release_data.get('name'),
-            'published_at': release_data.get('published_at'),
-            'tarball_url': release_data.get('tarball_url'),
-            'zipball_url': release_data.get('zipball_url'),
-            'html_url': release_data.get('html_url'),
-            'source': 'releases'
-        }
+
+        return release_data.get('tag_name')
     except requests.RequestException as e:
         logger.error(f"Failed to fetch release data from GitHub API: {e}")
         return None

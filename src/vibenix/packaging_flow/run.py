@@ -5,7 +5,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from vibenix.ui.conversation import ask_user,  coordinator_message, coordinator_error, coordinator_progress
-from vibenix.parsing import scrape_and_process, extract_updated_code, fetch_combined_project_data, fill_src_attributes
+from vibenix.parsing import fetch_github_release_data, scrape_and_process, extract_updated_code, fetch_combined_project_data, fill_src_attributes
 from vibenix.flake import init_flake
 from vibenix.nix import eval_progress, execute_build_and_add_to_stack
 from vibenix.packaging_flow.model_prompts import (
@@ -62,6 +62,10 @@ def run_nurl(url, rev=None):
         from vibenix.ccl_log import get_logger
         ccl_logger = get_logger()
         ccl_logger.enter_attribute("pin_fetcher", log_start=True)
+        rev = None
+        if not rev:
+            rev = fetch_github_release_data(url)
+            ccl_logger.write_kv("latest_gh_relese_tag", rev)
 
         cmd = ['nurl', url, rev] if rev else ['nurl', url]
         ccl_logger.write_kv("nurl_args", " ".join(cmd[1:]))
@@ -71,11 +75,17 @@ def run_nurl(url, rev=None):
             text=True,
             check=True
         )
-        out = result.stdout.strip()
+        fetcher = result.stdout.strip()
 
-        ccl_logger.write_kv("fetcher", out)
+        if rev:
+            version = rev[1:] if rev.startswith('v') else rev
+            fetcher = f"version = \"{version}\";\nsrc = " + fetcher.replace(version, "${version}") + ";"
+        else:
+            version = f"unstable-${{src.rev}}"
+            fetcher = f"version = \"{version}\";\nsrc = " + fetcher + ";"
+        ccl_logger.write_kv("fetcher", fetcher)
         ccl_logger.leave_attribute(log_end=True)
-        return out
+        return fetcher
     except subprocess.CalledProcessError as e:
         error_output = e.stderr.lower()
         # Check for various rate limit indicators
@@ -184,8 +194,6 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     except Exception as e:
         coordinator_error(f"Failed to fetch project page: {e}")
         return
-    
-    # Step 2b: Release data fetching removed - no longer needed
     
     # Step 3: Analyze project
     coordinator_message("I found the project information. Let me analyze it.")
