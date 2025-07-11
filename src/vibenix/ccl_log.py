@@ -85,13 +85,23 @@ class CCLLogger:
 
     def write_kv(self, key: str, value: str):
         value_str = str(value).strip()
-        hash = hashlib.sha256(value_str.encode('utf-8')).digest()
-        prev_key_path = self._dedup_dict.get(hash)
+        is_multiline = '\n' in value_str
+        curr_key_path = "@" + "/".join(str(x) for x in self._current_attr_path + [ key ])
+        prev_key_path = None
+        # reference multi-line values by previous path if possible
+        if is_multiline:
+            hash = hashlib.sha256(value_str.encode('utf-8')).digest()
+            prev_key_path = self._dedup_dict.get(hash)
+            # prefer shorter paths
+            if prev_key_path and (prev_key_path.count('/') > curr_key_path.count('/')):
+                self._dedup_dict[hash] = curr_key_path
         if prev_key_path:
             self._write(self._indent() + key + " = " + prev_key_path + "\n")
+        elif  not is_multiline:
+            self._write(self._indent() + key + " = " + value_str + "\n")
         else:
-            self._write(self._indent() + key + " = " + self._format_value(value_str) + "\n")
-            self._dedup_dict[hash] = "@" + "/".join(str(x) for x in self._current_attr_path + [ key ])
+            self._write(self._indent() + key + " = " + self._format_multiline_value(value_str) + "\n")
+            self._dedup_dict[hash] = curr_key_path
 
     def write_dict(self, name: str, dict: Dict[str,str]):
         self.enter_attribute(name)
@@ -116,19 +126,15 @@ class CCLLogger:
         seconds = elapsed % 60
         return f"{hours:02d}:{minutes:02d}:{seconds:06.3f}"
    
-    def _format_value(self, value: Any) -> str:
+    def _format_multiline_value(self, value_str: Any) -> str:
         """Format a value for Jinja2 template, handling multi-line strings.
         
         For multi-line values, returns the value with a newline prefix
         and proper indentation for each line.
         """
-        value_str = str(value)
-        if '\n' in value_str:
-            lines = value_str.splitlines()
-            line_start = ('\n' + self._indent() + "  ")
-            return line_start + line_start.join(line for line in lines)
-        else:
-            return value_str
+        lines = value_str.splitlines()
+        line_start = ('\n' + self._indent() + "  ")
+        return line_start + line_start.join(line for line in lines)
     
     def close(self):
         """Close the log file."""
