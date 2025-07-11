@@ -294,7 +294,7 @@ def handle_model_chat(chat: Chat, tool_call_collector=None) -> tuple[str, Usage]
         current_chat = chat
         last_message = None
 
-        response_chunk_num = 1
+        response_chunk_num = 0
         while ends_with_function_call:
             ends_with_function_call = False
             last_message = current_chat.last_message

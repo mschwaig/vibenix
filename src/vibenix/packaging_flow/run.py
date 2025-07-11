@@ -252,7 +252,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
       
         coordinator_message(f"Iteration {iteration + 1}:")
         coordinator_message(f"```\n{candidate.result.error.truncated()}\n```")
-        ccl_logger.log_iteration_start(iteration + 1)
+        ccl_logger.log_iteration_start(iteration)
         
         if candidate.result.error.type == NixErrorKind.HASH_MISMATCH:
             coordinator_message("Hash mismatch detected, fixing...")

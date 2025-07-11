@@ -116,7 +116,7 @@ def ask_model_prompt(template_path: str, functions: Optional[List[Callable]] = N
                             adapter.show_message(Message(Actor.MODEL, str(result)))
                         
                         usage = assistant_message.usage
-                        get_logger().reply_chunk_enum(1, type(result).__name__, result.name, 4)
+                        get_logger().reply_chunk_enum(0, type(result).__name__, result.name, 4)
                         get_logger().prompt_end(2)
 
                         return result

@@ -71,8 +71,8 @@ class CCLLogger:
         attr_str + ""
 
     def enter_list(self):
-        self._write(self._indent() + "= 1 =\n")
-        self._current_attr_path.append(1)
+        self._write(self._indent() + "= 0 =\n")
+        self._current_attr_path.append(0)
 
     def next_list_item(self):
         num = self._current_attr_path.pop()
@@ -186,7 +186,7 @@ class CCLLogger:
     
     def log_iteration_start(self, iteration: int):
         """Log the start of a build iteration."""
-        self.enter_list() if iteration == 1 else self.next_list_item()
+        self.enter_list() if iteration == 0 else self.next_list_item()
 
     def log_iteration_end(self, iteration: int, output : NixBuildResult):
         """Log the end of a build iteration."""
@@ -239,7 +239,7 @@ class CCLLogger:
 
     def reply_chunk_text(self, num: int, content : str, indent_level: int):
         """Log one response chunk."""
-        if num == 1:
+        if num == 0:
             self.enter_list()
         else:
             self.next_list_item()
@@ -247,14 +247,14 @@ class CCLLogger:
     
     def reply_chunk_function_call(self, num: int, indent_level: int):
         """Log one response chunk."""
-        if num == 1:
+        if num == 0:
             self.enter_list()
         else:
             self.next_list_item()
 
     def reply_chunk_enum(self, num: int, _type : str, value : str, indent_level: int):
         """Log one response chunk."""
-        if num == 1:
+        if num == 0:
             self.enter_list()
         else:
             self.next_list_item()
