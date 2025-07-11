@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """
-Convert between CCL (Custom Configuration Language) format and JSON.
+cclq - jq for CCL (Custom Configuration Language) files
+
+A wrapper around jq that allows querying CCL files by converting to JSON,
+running jq, and converting the output back to CCL.
 
 CCL format rules:
 - Key-value pairs with "key = value" (keys: alphanumeric, underscore, hyphen only)
 - Nested structures with indentation (always 2 spaces)
-- Arrays use "= N =" markers where N is 1-based index
+- Arrays use "= N =" markers where N is 0-based index
 - Multi-line strings preserve formatting
 - References using @path/to/value syntax
 """
@@ -13,6 +16,9 @@ CCL format rules:
 import json
 import re
 import sys
+import subprocess
+import tempfile
+import os
 from typing import Any, Dict, List, Union, Optional, Tuple, TextIO
 
 
@@ -105,7 +111,7 @@ class CCLParser:
             # Check for array marker: = N =
             array_match = re.match(r'^=\s*(\d+)\s*=$', stripped)
             if array_match:
-                index = int(array_match.group(1)) - 1  # Convert to 0-based
+                index = int(array_match.group(1))  # Already 0-based
                 self.current_line += 1
                 
                 if isinstance(container, list):
@@ -113,6 +119,9 @@ class CCLParser:
                     element = {}
                     element_path = f"{parent_path}[{index}]"
                     self._parse_block(element, base_indent + 2, element_path)
+                    
+                    # Add @ccl_index to preserve the original index
+                    element['@ccl_index'] = index
                     
                     # Extend list if needed (no null padding)
                     while len(container) <= index:
@@ -277,8 +286,9 @@ class CCLParser:
 class CCLWriter:
     """Convert JSON data to CCL format."""
     
-    def __init__(self):
+    def __init__(self, strict_arrays: bool = False):
         self.lines = []
+        self.strict_arrays = strict_arrays
         
     def write(self, data: Any, indent: int = 0, parent_key: str = None) -> str:
         """Convert data to CCL format string."""
@@ -314,6 +324,10 @@ class CCLWriter:
     def _write_dict(self, obj: Dict[str, Any], indent: int) -> None:
         """Write a dictionary at the given indentation level."""
         for key, value in obj.items():
+            # Skip @ccl_index key as it's metadata
+            if key == '@ccl_index':
+                continue
+                
             if isinstance(value, (dict, list)):
                 # Nested structure
                 self.lines.append(' ' * indent + f"{key} =")
@@ -330,10 +344,33 @@ class CCLWriter:
     
     def _write_list(self, lst: List[Any], indent: int) -> None:
         """Write a list at the given indentation level."""
+        # Validate that all items are dicts with @ccl_index
         for i, item in enumerate(lst):
-            # CCL uses 1-based indexing
-            self.lines.append(' ' * indent + f"= {i + 1} =")
-            self._write_value(item, indent + 2)
+            if not isinstance(item, dict):
+                raise ValueError(f"CCL lists can only contain dict elements, found {type(item).__name__} at position {i}")
+            if '@ccl_index' not in item:
+                raise ValueError(f"List item at position {i} missing required @ccl_index key")
+        
+        if self.strict_arrays:
+            # In strict mode, validate consecutive indices starting from 0
+            for i, item in enumerate(lst):
+                if item['@ccl_index'] != i:
+                    raise ValueError(f"Invalid @ccl_index: expected {i}, found {item['@ccl_index']} at position {i}")
+            
+            # Write items in order
+            for i, item in enumerate(lst):
+                self.lines.append(' ' * indent + f"= {i} =")
+                # Create a copy without @ccl_index for writing
+                item_copy = {k: v for k, v in item.items() if k != '@ccl_index'}
+                self._write_value(item_copy, indent + 2)
+        else:
+            # In non-strict mode, use the @ccl_index values as-is
+            for item in lst:
+                index = item['@ccl_index']
+                self.lines.append(' ' * indent + f"= {index} =")
+                # Create a copy without @ccl_index for writing
+                item_copy = {k: v for k, v in item.items() if k != '@ccl_index'}
+                self._write_value(item_copy, indent + 2)
     
     def _format_value(self, value: Any) -> str:
         """Format a single value for CCL output."""
@@ -375,17 +412,18 @@ def convert_ccl_to_json(input_file: str, output_file: str = None, resolve_refs: 
         print(json_str)
 
 
-def convert_json_to_ccl(input_file: str, output_file: str = None) -> None:
+def convert_json_to_ccl(input_file: str, output_file: str = None, strict_arrays: bool = False) -> None:
     """Convert a JSON file to CCL format.
     
     Args:
         input_file: Path to input JSON file
         output_file: Optional path to output CCL file (prints to stdout if not provided)
+        strict_arrays: If True, enforce consecutive array indices starting from 0
     """
     with open(input_file, 'r', encoding='utf-8') as f:
         data = json.load(f)
     
-    writer = CCLWriter()
+    writer = CCLWriter(strict_arrays=strict_arrays)
     ccl_str = writer.write(data)
     
     if output_file:
@@ -419,7 +457,7 @@ def test_round_trip(input_file: str, direction: str = "ccl-json-ccl") -> bool:
         json_data = parser.parse()
         
         # Convert back to CCL
-        writer = CCLWriter()
+        writer = CCLWriter(strict_arrays=True)
         ccl_output = writer.write(json_data)
         
         # Parse the generated CCL
@@ -442,7 +480,7 @@ def test_round_trip(input_file: str, direction: str = "ccl-json-ccl") -> bool:
             original_data = json.load(f)
         
         # Convert to CCL
-        writer = CCLWriter()
+        writer = CCLWriter(strict_arrays=True)
         ccl_str = writer.write(original_data)
         
         # Parse back to JSON
@@ -462,47 +500,191 @@ def test_round_trip(input_file: str, direction: str = "ccl-json-ccl") -> bool:
         raise ValueError("Invalid direction. Use 'ccl-json-ccl' or 'json-ccl-json'")
 
 
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage:")
-        print("  python ccl_to_json.py <input.ccl> [output.json] [--resolve-refs]")
-        print("  python ccl_to_json.py <input.json> [output.ccl] --to-ccl")
-        print("  python ccl_to_json.py <input> --test-round-trip [--direction=ccl-json-ccl|json-ccl-json]")
-        print("\nOptions:")
-        print("  --resolve-refs    Replace @references with their actual values")
-        print("  --to-ccl          Convert from JSON to CCL format")
-        print("  --test-round-trip Test round-trip conversion")
-        print("  --direction       Direction for round-trip test (default: ccl-json-ccl)")
-        sys.exit(1)
+def run_cclq(jq_filter: str, input_files: List[str] = None, jq_args: List[str] = None, 
+             output_format: str = 'ccl', resolve_refs: bool = False, strict_arrays: bool = False) -> None:
+    """Run jq on CCL files.
     
-    input_file = sys.argv[1]
-    output_file = None
-    resolve_refs = False
-    to_ccl = False
-    test_round_trip_flag = False
-    direction = "ccl-json-ccl"
+    Args:
+        jq_filter: The jq filter expression
+        input_files: List of input CCL files (use stdin if None)
+        jq_args: Additional arguments to pass to jq
+        output_format: Output format ('ccl' or 'json')
+        resolve_refs: If True, resolve @references before processing
+        strict_arrays: If True, enforce consecutive array indices starting from 0
+    """
+    jq_args = jq_args or []
     
-    # Parse arguments
-    for arg in sys.argv[2:]:
-        if arg == '--resolve-refs':
-            resolve_refs = True
-        elif arg == '--to-ccl':
-            to_ccl = True
-        elif arg == '--test-round-trip':
-            test_round_trip_flag = True
-        elif arg.startswith('--direction='):
-            direction = arg.split('=', 1)[1]
-        elif not output_file and not arg.startswith('--'):
-            output_file = arg
+    # Handle input
+    if input_files:
+        # Merge multiple CCL files into an array if more than one
+        if len(input_files) == 1:
+            with open(input_files[0], 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+            parser = CCLParser(lines)
+            json_data = parser.parse(resolve_references=resolve_refs)
+        else:
+            # Multiple files: create an array
+            json_data = []
+            for input_file in input_files:
+                with open(input_file, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                parser = CCLParser(lines)
+                file_data = parser.parse(resolve_references=resolve_refs)
+                json_data.append(file_data)
+    else:
+        # Read from stdin
+        lines = sys.stdin.readlines()
+        parser = CCLParser(lines)
+        json_data = parser.parse(resolve_references=resolve_refs)
+    
+    # Create temporary JSON file for jq input
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_in:
+        json.dump(json_data, temp_in, ensure_ascii=False)
+        temp_in_path = temp_in.name
     
     try:
-        if test_round_trip_flag:
-            success = test_round_trip(input_file, direction)
-            sys.exit(0 if success else 1)
-        elif to_ccl:
-            convert_json_to_ccl(input_file, output_file)
+        # Run jq
+        jq_cmd = ['jq'] + jq_args + [jq_filter, temp_in_path]
+        result = subprocess.run(jq_cmd, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            print(f"jq error: {result.stderr}", file=sys.stderr)
+            sys.exit(result.returncode)
+        
+        # Process output
+        if output_format == 'json':
+            # Just output the JSON
+            print(result.stdout, end='')
         else:
-            convert_ccl_to_json(input_file, output_file, resolve_refs)
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+            # Convert back to CCL
+            output = result.stdout.strip()
+            
+            if not output:
+                return
+                
+            # Try to parse as a single JSON document first
+            try:
+                json_output = json.loads(output)
+                writer = CCLWriter(strict_arrays=strict_arrays)
+                ccl_output = writer.write(json_output)
+                print(ccl_output)
+            except json.JSONDecodeError:
+                # Handle streaming output (one JSON per line)
+                output_lines = output.split('\n')
+                for line in output_lines:
+                    if line:
+                        try:
+                            json_output = json.loads(line)
+                            writer = CCLWriter(strict_arrays=strict_arrays)
+                            ccl_output = writer.write(json_output)
+                            print(ccl_output)
+                            if len(output_lines) > 1:
+                                print()  # Separate multiple outputs
+                        except json.JSONDecodeError:
+                            # If it's not valid JSON, just print it
+                            print(line)
+                        
+    finally:
+        # Clean up temporary file
+        os.unlink(temp_in_path)
+
+
+def print_usage():
+    """Print usage information."""
+    print("Usage: cclq [options] <jq filter> [file...]")
+    print()
+    print("A jq wrapper for CCL (Custom Configuration Language) files.")
+    print("Converts CCL to JSON, runs jq, and converts back to CCL.")
+    print()
+    print("Options:")
+    print("  -h, --help          Show this help message")
+    print("  -j, --json          Output JSON instead of CCL")
+    print("  -r, --resolve-refs  Resolve @references before processing")
+    print("  --strict-arrays     Enforce consecutive array indices starting from 0")
+    print("  -c, --compact       Compact output (passed to jq)")
+    print("  -s, --slurp         Read entire input into array (passed to jq)")
+    print("  -e, --exit-status   Set exit status based on output (passed to jq)")
+    print("  -n, --null-input    Use null as input (passed to jq)")
+    print()
+    print("Examples:")
+    print("  cclq '.' file.ccl                    # Pretty-print CCL file")
+    print("  cclq '.key' file.ccl                 # Extract value of 'key'")
+    print("  cclq -j '.' file.ccl                 # Convert CCL to JSON")
+    print("  cclq '.[] | select(.id > 5)' f.ccl   # Filter array elements")
+    print("  cclq -s '.[0]' file1.ccl file2.ccl   # Get first file's data")
+    print()
+    print("For ccl/json conversion:")
+    print("  cclq --convert <input.ccl> [output.json]")
+    print("  cclq --convert <input.json> [output.ccl] --to-ccl")
+
+
+if __name__ == "__main__":
+    # Check for help or no arguments
+    if len(sys.argv) < 2 or sys.argv[1] in ['-h', '--help']:
+        print_usage()
+        sys.exit(0)
+    
+    # Check for conversion mode (legacy support)
+    if len(sys.argv) >= 2 and sys.argv[1] == '--convert':
+        # Legacy conversion mode
+        args = sys.argv[2:]
+        if not args:
+            print("Error: --convert requires input file", file=sys.stderr)
+            sys.exit(1)
+            
+        input_file = args[0]
+        output_file = args[1] if len(args) > 1 else None
+        to_ccl = '--to-ccl' in args
+        resolve_refs = '--resolve-refs' in args
+        strict_arrays = '--strict-arrays' in args
+        
+        try:
+            if to_ccl:
+                convert_json_to_ccl(input_file, output_file, strict_arrays)
+            else:
+                convert_ccl_to_json(input_file, output_file, resolve_refs)
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        # jq mode
+        jq_args = []
+        input_files = []
+        output_format = 'ccl'
+        resolve_refs = False
+        strict_arrays = False
+        jq_filter = None
+        
+        i = 1
+        while i < len(sys.argv):
+            arg = sys.argv[i]
+            
+            if arg in ['-j', '--json']:
+                output_format = 'json'
+            elif arg in ['-r', '--resolve-refs']:
+                resolve_refs = True
+            elif arg == '--strict-arrays':
+                strict_arrays = True
+            elif arg in ['-c', '--compact', '-s', '--slurp', '-e', '--exit-status', '-n', '--null-input']:
+                jq_args.append(arg)
+            elif arg.startswith('-'):
+                # Unknown option, pass to jq
+                jq_args.append(arg)
+            elif jq_filter is None:
+                jq_filter = arg
+            else:
+                # This is an input file
+                input_files.append(arg)
+            
+            i += 1
+        
+        if jq_filter is None:
+            print("Error: No jq filter specified", file=sys.stderr)
+            print_usage()
+            sys.exit(1)
+        
+        try:
+            run_cclq(jq_filter, input_files or None, jq_args, output_format, resolve_refs, strict_arrays)
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
