@@ -49,7 +49,6 @@ def create_source_function_calls(store_path: str, prefix: str = "") -> List[Call
     # Create the function names with prefix
     source_description = f"{prefix}source" if prefix else "project source"
     
-    @log_function_call("{prefix}list_directory_contents")
     def list_directory_contents(relative_path: str) -> str:
         f"""List contents of a relative directory within the {source_description} given its relative path to the root directory."""
         try:
@@ -64,7 +63,6 @@ def create_source_function_calls(store_path: str, prefix: str = "") -> List[Call
         except Exception as e:
             return f"Error listing directory contents: {str(e)}"
 
-    @log_function_call("{prefix}read_file_content")
     def read_file_content(relative_path: str, line_offset: int = 0, number_lines_to_read: int = MAX_LINES_TO_READ) -> str:
         f"""Read the content of a file within the {source_description} given its relative path to the root directory."""
         try:
@@ -79,7 +77,6 @@ def create_source_function_calls(store_path: str, prefix: str = "") -> List[Call
         except Exception as e:
             return f"Error reading file content: {str(e)}"
     
-    @log_function_call("{prefix}detect_file_type_and_size")
     def detect_file_type_and_size(relative_path: str) -> str:
         f"""Detect the type and size of a file within the {source_description} using magika given its relative path to the root directory."""
         try:
@@ -129,7 +126,6 @@ def create_source_function_calls(store_path: str, prefix: str = "") -> List[Call
             size_bytes /= 1024.0
         return f"{size_bytes:.2f} PB"
     
-    @log_function_call("{prefix}search_in_files")
     def search_in_files(pattern: str, relative_path: str = ".", custom_args: str = None) -> str:
         f"""Search for a pattern in files within the {source_description} using ripgrep with sensible defaults for LLM usage.
         
@@ -172,7 +168,13 @@ def create_source_function_calls(store_path: str, prefix: str = "") -> List[Call
         except Exception as e:
             return f"Error in search_in_files: {str(e)}"
     
-    # Set function names with prefix and return them
+    # Apply logging decorator with the actual prefix value
+    list_directory_contents = log_function_call(f"{prefix}list_directory_contents")(list_directory_contents)
+    read_file_content = log_function_call(f"{prefix}read_file_content")(read_file_content)
+    detect_file_type_and_size = log_function_call(f"{prefix}detect_file_type_and_size")(detect_file_type_and_size)
+    search_in_files = log_function_call(f"{prefix}search_in_files")(search_in_files)
+    
+    # Set function names with prefix
     list_directory_contents.__name__ = f"{prefix}list_directory_contents"
     read_file_content.__name__ = f"{prefix}read_file_content"
     detect_file_type_and_size.__name__ = f"{prefix}detect_file_type_and_size"
