@@ -59,7 +59,12 @@ def create_initial_package(template: str, project_page: str, template_notes: str
 def run_nurl(url, rev=None):
     """Run nurl command and return the output."""
     try:
+        from vibenix.ccl_log import get_logger
+        ccl_logger = get_logger()
+        ccl_logger.enter_attribute("pin_fetcher", log_start=True)
+
         cmd = ['nurl', url, rev] if rev else ['nurl', url]
+        ccl_logger.write_kv("nurl_args", " ".join(cmd[1:]))
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -67,9 +72,9 @@ def run_nurl(url, rev=None):
             check=True
         )
         out = result.stdout.strip()
-        from vibenix.ccl_log import get_logger
-        ccl_logger = get_logger()
-        ccl_logger.log_fetcher(out, cmd[1:], 0)
+
+        ccl_logger.write_kv("fetcher", out)
+        ccl_logger.leave_attribute(log_end=True)
         return out
     except subprocess.CalledProcessError as e:
         error_output = e.stderr.lower()
@@ -154,12 +159,11 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
         # When URL is provided via CLI, still show welcome but skip prompt
         coordinator_message("Welcome to vibenix!")
     
-    # Log session start
-    ccl_logger.log_session_start(project_url)
-    
     # Log model configuration
     model = os.environ.get("MAGENTIC_LITELLM_MODEL", "unknown")
     ccl_logger.log_model_config(model)
+
+    ccl_logger.write_kv("project_url", project_url)
 
     # Obtain the project fetcher
     if fetcher: 
@@ -223,8 +227,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     best = Solution(code=initial_code, result=initial_result)
 
     ccl_logger.log_initial_build(best.code, best.result)
-    # Log that we're starting iterations
-    ccl_logger.log_before_iterations()
+    ccl_logger.enter_attribute("iterate")
     
     iteration = 0
     MAX_ITERATIONS = 40
@@ -249,7 +252,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
       
         coordinator_message(f"Iteration {iteration + 1}:")
         coordinator_message(f"```\n{candidate.result.error.truncated()}\n```")
-        ccl_logger.log_iteration_start(iteration)
+        ccl_logger.log_iteration_start(iteration + 1)
         
         if candidate.result.error.type == NixErrorKind.HASH_MISMATCH:
             coordinator_message("Hash mismatch detected, fixing...")

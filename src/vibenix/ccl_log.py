@@ -5,14 +5,14 @@ Based on: https://chshersh.com/blog/2025-01-06-the-most-elegant-configuration-la
 """
 
 from enum import Enum
+import hashlib
 import textwrap
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, TextIO
+from typing import Any, Dict, List, Optional, TextIO
 from dataclasses import dataclass, field
 from contextlib import contextmanager
-from jinja2 import Environment
 import functools
 from magentic import FunctionCall
 
@@ -44,24 +44,64 @@ class CCLLogger:
     log_file: Path
     print_to_console: bool = True
     _file_handle: TextIO = field(init=False)
-    _current_indent: int = field(default=0, init=False)
     _start_time: float = field(init=False)
-    _jinja_env: Environment = field(init=False)
+    _dedup_dict : Dict[bytes,str] = field(init=False)
+    _current_attr_path: List[str|int] = field(init=False)
+
+    def _indent(self):
+        return "  " * len(self._current_attr_path)
     
     def __post_init__(self):
         self._file_handle = open(self.log_file, 'w', buffering=1)
         self._start_time = time.time()
-        self._setup_jinja_env()
-        self._write_header()
+        self._dedup_dict = {}
+        self._current_attr_path = []
+        self.write_kv("start_time", datetime.now().isoformat())
     
-    def _setup_jinja_env(self):
-        """Set up Jinja2 environment for string templates."""
-        self._jinja_env = Environment(
-            trim_blocks=True,
-            lstrip_blocks=True,
-            keep_trailing_newline=True,
-        )
-    
+    def enter_attribute(self, name: str, log_start=False):
+        self._write(self._indent() + name + " =\n")
+        self._current_attr_path.append(name)
+        if log_start:
+            self.write_time("start_at")
+
+    def leave_attribute(self, log_end=False):
+        attr_str = self._current_attr_path.pop()
+        if log_end:
+            self.write_time("end_at")
+        attr_str + ""
+
+    def enter_list(self):
+        self._write(self._indent() + "= 1 =\n")
+        self._current_attr_path.append(1)
+
+    def next_list_item(self):
+        num = self._current_attr_path.pop()
+        self._write(self._indent() + f"= {num + 1} =\n")
+        self._current_attr_path.append(num + 1)
+
+    def leave_list(self):
+        num = self._current_attr_path.pop()
+        num + 1
+
+    def write_kv(self, key: str, value: str):
+        value_str = str(value).strip()
+        hash = hashlib.sha256(value_str.encode('utf-8')).digest()
+        prev_key_path = self._dedup_dict.get(hash)
+        if prev_key_path:
+            self._write(self._indent() + key + " = " + prev_key_path + "\n")
+        else:
+            self._write(self._indent() + key + " = " + self._format_value(value_str) + "\n")
+            self._dedup_dict[hash] = "@" + "/".join(str(x) for x in self._current_attr_path + [ key ])
+
+    def write_dict(self, name: str, dict: Dict[str,str]):
+        self.enter_attribute(name)
+        for k, v in dict.items():
+            self.write_kv(k, v)
+        self.leave_attribute()
+
+    def write_time(self, key):
+        self.write_kv(key, self._elapsed_time())
+
     def _write_header(self):
         """Write header with metadata."""
         # TODO: add things like model version and a commit hash
@@ -76,7 +116,7 @@ class CCLLogger:
         seconds = elapsed % 60
         return f"{hours:02d}:{minutes:02d}:{seconds:06.3f}"
    
-    def _format_value(self, value: Any, extra_indent: int) -> str:
+    def _format_value(self, value: Any) -> str:
         """Format a value for Jinja2 template, handling multi-line strings.
         
         For multi-line values, returns the value with a newline prefix
@@ -85,8 +125,7 @@ class CCLLogger:
         value_str = str(value)
         if '\n' in value_str:
             lines = value_str.splitlines()
-            # I don't know yet why this extra + 2 is required here
-            line_start = ('\n' + ('  ' * (extra_indent + 2)))
+            line_start = ('\n' + self._indent() + "  ")
             return line_start + line_start.join(line for line in lines)
         else:
             return value_str
@@ -95,351 +134,151 @@ class CCLLogger:
         """Close the log file."""
         self._file_handle.close()
     
-    def _write(self, line: str, indent_level=None):
-        """Write a line with current indentation."""
-        if not indent_level:
-            indent_level = self._current_indent
-        self._file_handle.write("  " * indent_level + line + "\n")
-        self._file_handle.flush()  # Ensure immediate write to disk
-
-    @contextmanager
-    def _section_begin(self, section_head, indent_level):
-        """Context manager for writing indented sections."""
-        self._write(section_head, indent_level)
-        self._current_indent = indent_level + 1
-        yield
-        self._current_indent = indent_level
-
-    def _section_content(self, indent_level):
-        """Context manager for writing indented sections."""
-        prev_indent = self._current_indent
-        self._current_indent = indent_level + 1
-        yield
-        self._current_indent = prev_indent + 1
+    def _write(self, string: str, indent=0):
+        self._file_handle.write(string)
+        self._file_handle.flush()
 
     def log_model_config(self, model: str):
         """Log model configuration including pricing if available."""
-        with self._section_begin("model-config =", 0):
-            self._write("model = " + model)
-            pricing = get_model_pricing(model)
-            if pricing:
-                input_cost, output_cost = pricing
-                self._write(f"input_cost_per_token = {input_cost:.10f}")
-                self._write(f"output_cost_per_token = {output_cost:.10f}")
-    
-    def log_session_start(self, project_url: str):
-        """Log the start of a packaging session."""
-        with self._section_begin("session-start =", 0):
-            self._write("elapsed = " + self._elapsed_time())
-            self._write("project_url = " + project_url)
-    
+        self.enter_attribute("model_config")
+        self.write_kv("model", model)
+        pricing = get_model_pricing(model)
+        if pricing:
+            input_cost, output_cost = pricing
+            self.write_kv(f"input_cost_per_token = {input_cost:.6f}")
+            self.write_kv(f"output_cost_per_token = {output_cost:.6f}")
+        self.leave_attribute()
+
     def log_session_end(self, success: bool, total_iterations: int, total_cost: float = None):
         """Log the end of a packaging session."""
-        with self._section_begin("session-end =", 0):
-            self._write("elapsed = " + self._elapsed_time())
-            self._write("success = " + ("true" if success else "false"))
-            self._write("total_iterations = " + str(total_iterations))
-            if total_cost is not None:
-                self._write(f"total_cost = {total_cost:.6f}")
+        self.enter_attribute("session_end")
+        self.write_time("elapsed")
+        self.write_kv("success", "true" if success else "false")
+        self.write_kv("total_iterations", str(total_iterations))
+        if total_cost is not None:
+            self.write_kv("total_cost", f"{total_cost:.6f}")
+        self.leave_attribute()
     
     def log_template_selected_begin(self, indent_level: int = 0):
         """Log template selection."""
-        template_str = textwrap.indent(textwrap.dedent("""\
-          select_template =
-          """), "  " * indent_level)
-        
-        # Register the format_value function as a Jinja2 function
-        template = self._jinja_env.from_string(template_str)
-        output = template.render(
-        )
-
-        self._file_handle.write(output)
-        if self.print_to_console:
-            print(output)
+        self.enter_attribute("select_template")
 
 
     def log_template_selected_end(self, template_type: str, template_content: str, notes: str | None, indent_level: int = 0):
         """Log template selection."""
-        template_str = textwrap.indent(textwrap.dedent("""\
-            template_type = {{ template_type }}
-            template = {{ format_value(template_content, 2) }}
-            notes = {{ format_value(notes, 2) }}
-            """), "  " * (indent_level + 1))
-        
-        # Register the format_value function as a Jinja2 function
-        template = self._jinja_env.from_string(template_str)
-        output = template.render(
-            template_type=template_type,
-            template_content=template_content,
-            notes=notes if notes else "",
-            format_value=self._format_value,
-        )
-
-        self._file_handle.write(output)
-        if self.print_to_console:
-            print(output)
+        self.write_kv("template_type", template_type)
+        self.write_kv("template", template_content)
+        self.write_kv("notes", notes if notes else "")
+        self.leave_attribute()
 
     def log_initial_build(self, code: str, result: NixBuildResult, indent_level: int = 0):
         """Log the initial build result."""
-        template_str = textwrap.indent(textwrap.dedent("""\
-          initial =
-            code = {{ format_value(code, 2) }}\n
-            error = {{ format_value(error, 2) }}\n"""), "  " * indent_level)
-        
-        # Register the format_value function as a Jinja2 function
-        template = self._jinja_env.from_string(template_str)
-        output = template.render(
-            code=code,
-            error=result.error.truncated() if not result.success else "",
-            format_value=self._format_value,
-        )
-
-        self._file_handle.write(output)
-        if self.print_to_console:
-            print(output)
-
-    def log_before_iterations(self):
-        """Log template selection."""
-        self._write("iteration =", 0)
+        self.enter_attribute("initial")
+        self.write_kv("code", code)
+        self.write_kv("error", result.error.truncated() if not result.success else "")
+        self.leave_attribute()
     
     def log_iteration_start(self, iteration: int):
         """Log the start of a build iteration."""
-        self._write(f"= {iteration} =", 1)
+        self.enter_list() if iteration == 1 else self.next_list_item()
 
     def log_iteration_end(self, iteration: int, output : NixBuildResult):
         """Log the end of a build iteration."""
         if output.success:
-            self._write("type = success", 2)
+            self.write_kv("type", "success")
         elif output.error:
-            self._write("type = " + output.error.type.value, 2)
-        self._write("elapsed = " + self._elapsed_time(), 2)
+            self.write_kv("type", output.error.type.value)
+        self.write_time("elapsed")
 
     def log_progress_eval(self, iteration: int, diff : NixBuildErrorDiff):
         """Log progress evaluation."""
-        with self._section_begin("progress_eval =", 2):
-            self._write("result = " + diff.value)
-            self._write("elapsed = " + self._elapsed_time())
+        self.enter_attribute("progress_eval")
+        self.write_kv("result", diff.value)
+        self.write_time("elapsed")
+        self.leave_attribute()
     
     
     
     def log_model_response(self, input_tokens: int, output_tokens: int, 
                           cost: Optional[float] = None, response_type: str = "model_response"):
         """Log a model response with token usage and cost."""
-        with self._section_begin(f"{response_type} =", 2):
-            self._write("elapsed = " + self._elapsed_time())
-            self._write("input_tokens = " + str(input_tokens))
-            self._write("output_tokens = " + str(output_tokens))
-            self._write("total_tokens = " + str(input_tokens + output_tokens))
-            if cost is not None:
-                self._write(f"cost = {cost:.6f}")
+        self.enter_attribute(response_type)
+        self.write_time("elapsed")
+        self.write_kv("input_tokens", str(input_tokens))
+        self.write_kv("output_tokens", str(output_tokens))
+        self.write_kv("total_tokens", str(input_tokens + output_tokens))
+        if cost is not None:
+            self.write_kv("cost", f"{cost:.6f}")
+        self.leave_attribute()
     
     def log_iteration_cost(self, iteration: int, iteration_cost: float, 
                           input_tokens: int, output_tokens: int):
         """Log the total cost for an iteration."""
-        with self._section_begin("iteration_cost =", 2):
-            self._write("elapsed = " + self._elapsed_time())
-            self._write("iteration = " + str(iteration))
-            self._write("input_tokens = " + str(input_tokens))
-            self._write("output_tokens = " + str(output_tokens))
-            self._write("total_tokens = " + str(input_tokens + output_tokens))
-            self._write(f"cost = {iteration_cost:.6f}")
+        self.enter_attribute("iteration_cost")
+        self.write_time("elapsed")
+        self.write_kv("iteration", str(iteration))
+        self.write_kv("input_tokens", str(input_tokens))
+        self.write_kv("output_tokens", str(output_tokens))
+        self.write_kv("total_tokens", str(input_tokens + output_tokens))
+        self.write_kv("cost", f"{iteration_cost:.6f}")
+        self.leave_attribute()
 
     def prompt_begin(self, prompt_name: str, prompt_template: str, indent_level: int, prompt_args : Dict):
         """Log the beginning of a model prompt."""
-        template_str = textwrap.indent(textwrap.dedent("""\
-          model_prompt =
-            start_at = {{ elapsed_time }}
-            name = {{ prompt_name }}
-            args =
-              {% for key, value in args.items() %}
-              {{ key }} = {{ format_value(value, 3) }}
-              {% endfor %}
-            template = {{ format_value(template, 2) }}
-            reply_chunks =
-            """), "  " * indent_level)
-        
-        # Register the format_value function as a Jinja2 function
-        template = self._jinja_env.from_string(template_str)
-        output = template.render(
-            elapsed_time=self._elapsed_time(),
-            prompt_name=prompt_name,
-            args=prompt_args,
-            template=prompt_template,
-            format_value=self._format_value,
-            spaces=indent_level * 2
-        )
-
-        self._file_handle.write(output)
-        if self.print_to_console:
-            print(output)
+        self.enter_attribute("model_prompt", log_start=True)
+        self.write_kv("name", prompt_name)
+        self.write_dict("args", prompt_args)
+        self.write_kv("template", prompt_template)
+        self.enter_attribute("reply_chunks")
 
     def reply_chunk_text(self, num: int, content : str, indent_level: int):
         """Log one response chunk."""
-        template_str = textwrap.indent(textwrap.dedent("""\
-          = {{num}} =
-            text = {{ format_value(content, 4) }}
-          """),
-            "  " * indent_level)
-        
-        # Register the format_value function as a Jinja2 function
-        template = self._jinja_env.from_string(template_str)
-        output = template.render(
-            num=num,
-            content=content,
-            format_value=self._format_value,
-            spaces=indent_level * 2
-        )
-
-        self._file_handle.write(output)
-        if self.print_to_console:
-            print(output)
+        if num == 1:
+            self.enter_list()
+        else:
+            self.next_list_item()
+        self.write_kv("text", content)
     
     def reply_chunk_function_call(self, num: int, indent_level: int):
         """Log one response chunk."""
-        template_str = textwrap.indent(textwrap.dedent("""\
-          = {{num}} =
-          """),
-            "  " * indent_level)
-        
-        # Register the format_value function as a Jinja2 function
-        template = self._jinja_env.from_string(template_str)
-        output = template.render(
-            num=num,
-            spaces=indent_level * 2
-        )
-
-        self._file_handle.write(output)
-        if self.print_to_console:
-            print(output)
+        if num == 1:
+            self.enter_list()
+        else:
+            self.next_list_item()
 
     def reply_chunk_enum(self, num: int, _type : str, value : str, indent_level: int):
         """Log one response chunk."""
-        template_str = textwrap.indent(textwrap.dedent("""\
-          = {{num}} =
-            enum = {{ type }}.{{ value }}
-          """),
-            "  " * indent_level)
-        
-        # Register the format_value function as a Jinja2 function
-        template = self._jinja_env.from_string(template_str)
-        output = template.render(
-            num=num,
-            type=_type,
-            value=value,
-            spaces=indent_level * 2
-        )
-
-        self._file_handle.write(output)
-        if self.print_to_console:
-            print(output)
+        if num == 1:
+            self.enter_list()
+        else:
+            self.next_list_item()
+        self.write_kv("enum", f"{_type}.{value}")
 
     def prompt_end(self, indent_level: int):
         """Log the end of a model prompt."""
-        template_str = textwrap.indent(textwrap.dedent("""\
-          end_at = {{ elapsed_time }}
-          """), "  " * (indent_level + 1))
-        
-        template = self._jinja_env.from_string(template_str)
-        output = template.render(
-            elapsed_time=self._elapsed_time(),
-        )
-        
-        self._file_handle.write(output)
-        if self.print_to_console:
-            print(output)
+        self.leave_list()  # Close reply_chunks list
+        self.leave_attribute()  # Close reply_chunks attribute
+        self.leave_attribute(log_end=True)  # Close model_prompt attribute
 
     def _function_begin(self, function_name: str, indent_level: int, **kwargs):
         """Log the beginning of a function call."""
-        template_str = textwrap.indent(textwrap.dedent("""\
-          function_call =
-            start_at = {{ elapsed_time }}
-            name = {{ function_name }}
-            args =
-              {% for key, value in args.items() %}
-              {{ key }} = {{ format_value(value, 2) }}
-              {% endfor %}"""), "  " * indent_level)
-        
-        # Register the format_value function as a Jinja2 function
-        template = self._jinja_env.from_string(template_str)
-        output = template.render(
-            elapsed_time=self._elapsed_time(),
-            function_name=function_name,
-            args=kwargs,
-            format_value=self._format_value,
-            spaces=indent_level * 2
-        )
-
-        self._file_handle.write(output)
-        if self.print_to_console:
-            print(output)
+        self.enter_attribute("function_call", log_start=True)
+        self.write_kv("name", function_name)
+        self.write_dict("args", kwargs)
     
     def _function_end(self, function_name: str, result: Any, indent_level: int):
         """Log the end of a function call with result."""
-        template_str = textwrap.indent(textwrap.dedent("""\
-          result = {{ format_value(result, 2) }}
-          end_at = {{ elapsed_time }}
-          """), "  " * (indent_level + 1))
-        
-        template = self._jinja_env.from_string(template_str)
-        output = template.render(
-            result=result,
-            elapsed_time=self._elapsed_time(),
-            format_value=self._format_value
-        )
-        
-        self._file_handle.write(output)
-        if self.print_to_console:
-            print(output)
-
-    def log_fetcher(self, fetcher: str, args: list, indent_level: int):
-        """Log fetcher user and arguments used to obtain it."""
-        template_str = textwrap.indent(textwrap.dedent("""\
-          pin_fetcher =
-            start_at = {{ elapsed_time }}
-            nurl_args = {% for value in args %}{{ format_value(value, 2) }}  
-            {% endfor %}
-            fetcher =
-            """), "  " * indent_level)
-        fetcher = textwrap.indent(fetcher + "\n", "  " * (indent_level + 2))
-        template = self._jinja_env.from_string(template_str + fetcher)
-        output = template.render(
-            fetcher=fetcher,
-            args=args,
-            elapsed_time=self._elapsed_time(),
-            format_value=self._format_value
-        )
-        
-        self._file_handle.write(output)
-        if self.print_to_console:
-            print(output)
+        self.write_kv("result", result)
+        self.leave_attribute(log_end=True)
 
     def log_project_summary_begin(self, indent_level: int = 0):
         """Log the summary of the project."""
-        template_str = textwrap.indent(textwrap.dedent("""\
-            summarize_project =
-            """), "  " * indent_level)
-        template = self._jinja_env.from_string(template_str)
-        output = template.render(
-        )
-
-        self._file_handle.write(output)
-        if self.print_to_console:
-            print(output)
+        self.enter_attribute("summarize_project")
 
     def log_project_summary_end(self, summary_str: str, indent_level: int = 0):
         """Log the summary of the project."""
-        template_str = textwrap.indent(textwrap.dedent("""\
-          summary = {{ format_value(summary_str, 2) }}
-          """), "  " * (indent_level + 1))
-        template = self._jinja_env.from_string(template_str)
-        output = template.render(
-            summary_str=summary_str,
-            format_value=self._format_value
-        )
-
-        self._file_handle.write(output)
-        if self.print_to_console:
-            print(output)
+        self.write_kv("summary", summary_str)
+        self.leave_attribute()
 
 
 # Global logger instance
