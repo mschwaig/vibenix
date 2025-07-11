@@ -77,23 +77,6 @@
       in
       {
         packages = {
-          # Create a virtual environment with all dependencies
-          default = pythonSet.mkVirtualEnv "vibenix-env" workspace.deps.default;
-
-          # The vibenix application itself with runtime dependencies
-          vibenix = pkgs.symlinkJoin {
-            name = "vibenix-wrapped";
-            paths = [ pythonSet.vibenix ];
-            buildInputs = [ pkgs.makeWrapper ];
-            postBuild = ''
-              wrapProgram $out/bin/vibenix \
-                --set NOOGLE_FUNCTION_NAMES "${noogleFunctionNames}" \
-                --set NIXPKGS_EMBEDDINGS "${packageEmbeddings}/embeddings.pkl" \
-                --prefix PATH : "${pkgs.lib.makeBinPath cli-dependencies}"
-            '';
-          };
-          
-          # Preprocessed noogle function names for search
           noogle-function-names = noogleFunctionNames;
         };
 
