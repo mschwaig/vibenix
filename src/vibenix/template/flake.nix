@@ -32,9 +32,8 @@
   in
    {
 
-    packages.x86_64-linux.default = pkgs.callPackage ./package.nix {
-      stdenv = ciStdenv;
-    };
+    packages.x86_64-linux.default = pkgs.lib.callPackageWith (
+      pkgs // { stdenv = ciStdenv; }) ./package.nix {};
     packages.x86_64-linux.nixpkgs-src = nixpkgs.outPath;
 
   };
