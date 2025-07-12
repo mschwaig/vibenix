@@ -31,7 +31,6 @@ on:
       ollama_host:
         description: 'Ollama host URL (e.g., http://your-host.tailnet:11434)'
         required: false
-        default: 'https://hydralisk.van-duck.ts.net:11435'
         type: string
   push:
     branches:
@@ -150,15 +149,18 @@ jobs:
             provider="openai"
           fi
           
-          cat > ~/.vibenix/config.json << EOF
-          {
-            "provider": "$provider",
-            "model": "$model_converted",
-            "backend": "litellm",
-            "ollama_host": "${{ github.event.inputs.ollama_host || 'https://hydralisk.van-duck.ts.net:11435' }}",
-            "openai_api_base": "${{ github.event.inputs.ollama_host || 'https://hydralisk.van-duck.ts.net:11435' }}/v1"
-          }
-          EOF
+          # Build config JSON dynamically
+          config_json='{"provider": "'$provider'", "model": "'$model_converted'", "backend": "litellm"'
+          
+          # Add ollama_host and openai_api_base only if ollama_host input is provided
+          if [ -n "${{ github.event.inputs.ollama_host }}" ]; then
+            config_json="${config_json}, \"ollama_host\": \"${{ github.event.inputs.ollama_host }}\""
+            config_json="${config_json}, \"openai_api_base\": \"${{ github.event.inputs.ollama_host }}/v1\""
+          fi
+          
+          config_json="${config_json}}"
+          
+          echo "$config_json" > ~/.vibenix/config.json
           
       - name: Setup environment
         run: |
