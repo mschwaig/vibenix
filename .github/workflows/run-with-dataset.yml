@@ -22,8 +22,9 @@ on:
           - anthropic
           - ollama
           - gemini
+          - openai
       model:
-        description: 'Model to use (e.g., claude-3-5-haiku-20241022, ollama/qwen2.5-coder:32b, or gemini/gemini-2.5-flash)'
+        description: 'Model to use (e.g., claude-3-5-haiku-20241022, ollama/qwen2.5-coder:32b, gemini/gemini-2.5-flash, or gpt-4.1-mini-2025-04-14)'
         required: false
         default: 'gemini/gemini-2.5-flash'
         type: string
@@ -169,6 +170,8 @@ jobs:
           elif [ "${{ github.event.inputs.model_provider || 'gemini' }}" = "ollama" ]; then
             # For Ollama via OpenAI endpoint, set a dummy API key if needed
             echo "OPENAI_API_KEY=dummy" >> $GITHUB_ENV
+          elif [ "${{ github.event.inputs.model_provider || 'gemini' }}" = "openai" ]; then
+            echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> $GITHUB_ENV
           fi
       
       - name: Process package request
