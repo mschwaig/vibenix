@@ -383,11 +383,11 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
                         attempted_tool_calls = []  # Reset tool calls since we fixed log output
                     else:
                         coordinator_message(f"Iteration {iteration + 1} stagnated...")
-                        candidate = best
+                        # Don't reset to best - keep the current candidate
                         consecutive_rebuilds_without_progress += 1
                 else:  # REGRESS
                     coordinator_message(f"Iteration {iteration + 1} regressed...")
-                    candidate = best
+                    # Don't reset to best - keep the current candidate
                     consecutive_rebuilds_without_progress += 1
                 consecutive_non_build_errors = 0
             else:
@@ -395,7 +395,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
                 coordinator_message(f"Non-build error: {new_result.error.type}")
                 consecutive_non_build_errors += 1          
                 if consecutive_non_build_errors >= MAX_CONSECUTIVE_NON_BUILD_ERRORS:
-                    candidate = best
+                    # Don't reset to best - keep the current candidate
                     consecutive_non_build_errors = 0
         
         # Log iteration cost and token usage
