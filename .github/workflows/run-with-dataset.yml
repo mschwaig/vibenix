@@ -40,6 +40,15 @@ on:
         options:
           - implementation
           - evaluation
+      issue_numbers:
+        description: 'Comma-separated list of issue numbers to run (overrides dataset, max_packages, and randomize)'
+        required: false
+        type: string
+      timeout_minutes:
+        description: 'Timeout for each package build job in minutes (default: 45, vibenix will timeout 15 minutes earlier)'
+        required: false
+        default: '45'
+        type: number
   push:
     branches:
       - main
@@ -81,38 +90,84 @@ jobs:
           import csv
           import json
           import random
+          import sys
           
           matrix_data = []
           
-          # Select CSV file based on dataset choice
-          dataset = '${{ github.event.inputs.dataset || 'implementation' }}'
-          if dataset == 'implementation':
-              csv_file = 'research/packaging_requests/used_during_implementation.csv'
-          else:  # evaluation
-              csv_file = 'research/packaging_requests/post_project_evaluation.csv'
+          # Check if specific issue numbers were provided
+          issue_numbers_input = '${{ github.event.inputs.issue_numbers }}'.strip()
           
-          with open(csv_file, 'r') as f:
-              reader = csv.DictReader(f)
-              for row in reader:
-                  if row['repo_url']:  # Skip entries without repo URLs
-                      clean_name = row['repo_url'].replace('https://github.com/', '')
-                      matrix_data.append({
-                          'issue_number': row['issue_number'],
-                          'repo_url': row['repo_url'],
-                          'repo_name': clean_name
-                      })
-          
-          # Randomize if requested
-          randomize = '${{ github.event.inputs.randomize }}' == 'true'
-          if randomize:
-              random.shuffle(matrix_data)
-          
-          # GitHub Actions has a matrix size limit, so we might need to batch
-          max_packages = int('${{ github.event.inputs.max_packages || 5 }}')
-          if max_packages == 0:
-              matrix = {'include': matrix_data}
+          if issue_numbers_input:
+              # When issue numbers are specified, search both datasets
+              csv_files = [
+                  'research/packaging_requests/used_during_implementation.csv',
+                  'research/packaging_requests/post_project_evaluation.csv'
+              ]
+              all_data = {}
+              
+              for csv_file in csv_files:
+                  with open(csv_file, 'r') as f:
+                      reader = csv.DictReader(f)
+                      for row in reader:
+                          if row['repo_url']:  # Skip entries without repo URLs
+                              clean_name = row['repo_url'].replace('https://github.com/', '')
+                              all_data[row['issue_number']] = {
+                                  'issue_number': row['issue_number'],
+                                  'repo_url': row['repo_url'],
+                                  'repo_name': clean_name
+                              }
           else:
-              matrix = {'include': matrix_data[:max_packages]}
+              # Use dataset selection when no specific issues are provided
+              dataset = '${{ github.event.inputs.dataset || 'implementation' }}'
+              if dataset == 'implementation':
+                  csv_file = 'research/packaging_requests/used_during_implementation.csv'
+              else:  # evaluation
+                  csv_file = 'research/packaging_requests/post_project_evaluation.csv'
+              
+              # Load data from selected CSV
+              all_data = {}
+              with open(csv_file, 'r') as f:
+                  reader = csv.DictReader(f)
+                  for row in reader:
+                      if row['repo_url']:  # Skip entries without repo URLs
+                          clean_name = row['repo_url'].replace('https://github.com/', '')
+                          all_data[row['issue_number']] = {
+                              'issue_number': row['issue_number'],
+                              'repo_url': row['repo_url'],
+                              'repo_name': clean_name
+                          }
+          
+          if issue_numbers_input:
+              # Process specific issue numbers
+              issue_numbers = [num.strip() for num in issue_numbers_input.split(',') if num.strip()]
+              missing_issues = []
+              
+              for issue_num in issue_numbers:
+                  if issue_num in all_data:
+                      matrix_data.append(all_data[issue_num])
+                  else:
+                      missing_issues.append(issue_num)
+              
+              if missing_issues:
+                  print(f'ERROR: The following issue numbers were not found in either dataset: {', '.join(missing_issues)}')
+                  print(f'Available issue numbers across both datasets: {', '.join(sorted(all_data.keys()))}')
+                  sys.exit(1)
+          else:
+              # Use all data from CSV
+              matrix_data = list(all_data.values())
+              
+              # Randomize if requested
+              randomize = '${{ github.event.inputs.randomize }}' == 'true'
+              if randomize:
+                  random.shuffle(matrix_data)
+              
+              # Limit by max_packages
+              max_packages = int('${{ github.event.inputs.max_packages || 5 }}')
+              if max_packages > 0:
+                  matrix_data = matrix_data[:max_packages]
+          
+          # Create matrix
+          matrix = {'include': matrix_data}
           
           with open('matrix.json', 'w') as f:
               json.dump(matrix, f)
@@ -126,7 +181,7 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     name: Package ${{ matrix.repo_name }}
-    timeout-minutes: 45
+    timeout-minutes: ${{ fromJSON(github.event.inputs.timeout_minutes || '45') }}
     strategy:
       matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
       max-parallel: 1  # Run only 1 job at a time to avoid API rate limits
@@ -203,9 +258,17 @@ jobs:
           # Create output directory for this run
           mkdir -p output
           
+          # Calculate vibenix timeout (15 minutes less than job timeout)
+          job_timeout_minutes=${{ github.event.inputs.timeout_minutes || '45' }}
+          vibenix_timeout_minutes=$((job_timeout_minutes - 15))
+          vibenix_timeout_seconds=$((vibenix_timeout_minutes * 60))
+          
+          echo "Job timeout: ${job_timeout_minutes} minutes"
+          echo "Vibenix timeout: ${vibenix_timeout_minutes} minutes (${vibenix_timeout_seconds} seconds)"
+          
           # Run vibenix with raw output and save results
           set -o pipefail
-          nix develop .# -c python -m vibenix \
+          VIBENIX_TIMEOUT_SECONDS=${vibenix_timeout_seconds} nix develop .# -c python -m vibenix \
             --raw \
             --output-dir output \
             "${{ matrix.repo_url }}" \
