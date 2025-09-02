@@ -118,7 +118,7 @@ class CCLParser:
                 if isinstance(container, list):
                     # Parse the array element
                     element = {}
-                    element_path = f"{parent_path}[{index}]"
+                    element_path = f"{parent_path}/{index}"
                     self._parse_block(element, base_indent + 2, element_path)
                     
                     # Add @ccl_index to preserve the original index
@@ -308,19 +308,29 @@ class CCLParser:
                     result[key] = self._resolve_references(value, new_path)
             return result
         elif isinstance(data, list):
-            return [self._resolve_references(item, f"{current_path}[{i}]") 
+            return [self._resolve_references(item, f"{current_path}/{i}") 
                     for i, item in enumerate(data)]
         else:
             return data
     
     def _get_value_at_path(self, data: Any, path: str) -> Any:
-        """Get value at a given path like 'key1/key2/key3'."""
+        """Get value at a given path like 'key1/key2/key3' or 'array/0/key'."""
         parts = path.split('/')
         current = data
         
         for part in parts:
             if isinstance(current, dict) and part in current:
                 current = current[part]
+            elif isinstance(current, list):
+                # Try to parse as array index
+                try:
+                    index = int(part)
+                    if 0 <= index < len(current):
+                        current = current[index]
+                    else:
+                        return None
+                except ValueError:
+                    return None
             else:
                 return None
         
