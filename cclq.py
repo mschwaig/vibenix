@@ -28,6 +28,7 @@ class CCLParser:
         self.current_line = 0
         self.root_data = {}
         self.reference_paths = {}  # Store paths to values for reference resolution
+        self.path_to_value = {}  # Store paths to non-reference values for proper resolution
         
     def parse(self, resolve_references: bool = False) -> Dict[str, Any]:
         """Parse the entire CCL file."""
@@ -149,6 +150,9 @@ class CCLParser:
                         # Store reference path
                         if isinstance(parsed_value, str) and parsed_value.startswith('@'):
                             self.reference_paths[current_path] = parsed_value
+                        else:
+                            # Store non-reference value for resolution
+                            self.path_to_value[current_path] = parsed_value
                         
                         # Check for multi-line continuation
                         if isinstance(parsed_value, str):
@@ -164,6 +168,10 @@ class CCLParser:
                                     self.current_line += 1
                                 else:
                                     break
+                            
+                            # Update path_to_value with final multi-line value if not a reference
+                            if not container[key].startswith('@'):
+                                self.path_to_value[current_path] = container[key]
                         
                         last_key = key
                     else:
@@ -216,10 +224,16 @@ class CCLParser:
                                         lines.append(content.rstrip())
                                         self.current_line += 1
                                     container[key] = '\n'.join(lines)
+                                    
+                                    # Store non-reference multi-line value
+                                    if not container[key].startswith('@'):
+                                        self.path_to_value[current_path] = container[key]
+                                        
                                 last_key = None
                             else:
                                 # Empty value
                                 container[key] = ""
+                                self.path_to_value[current_path] = ""
                                 last_key = key
                 else:
                     # No = found, this might be content or we should skip
@@ -257,8 +271,38 @@ class CCLParser:
                 new_path = f"{current_path}.{key}" if current_path else key
                 if isinstance(value, str) and value.startswith('@'):
                     # This is a reference - resolve it
-                    ref_path = value[1:]  # Remove @
-                    resolved = self._get_value_at_path(self.root_data, ref_path)
+                    ref_value = value.strip()  # Remove any trailing whitespace/newlines
+                    if not ref_value.startswith('@'):
+                        # After stripping, it's not a reference anymore
+                        result[key] = value
+                        continue
+                        
+                    ref_path = ref_value[1:]  # Remove @
+                    
+                    # Resolve transitively - keep following references
+                    resolved = None
+                    visited = set()  # Prevent infinite loops
+                    current_ref = ref_path
+                    
+                    while current_ref and current_ref not in visited:
+                        visited.add(current_ref)
+                        
+                        # First check path_to_value for non-reference values
+                        if current_ref in self.path_to_value:
+                            resolved = self.path_to_value[current_ref]
+                            break
+                        else:
+                            # Get value at path
+                            val = self._get_value_at_path(self.root_data, current_ref)
+                            if val is None:
+                                break
+                            elif isinstance(val, str) and val.strip().startswith('@'):
+                                # Follow the reference
+                                current_ref = val.strip()[1:]
+                            else:
+                                resolved = val
+                                break
+                    
                     result[key] = resolved if resolved is not None else value
                 else:
                     result[key] = self._resolve_references(value, new_path)
