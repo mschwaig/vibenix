@@ -73,6 +73,14 @@ jobs:
       - name: Build vibenix environment
         run: |
           nix develop .# --command echo "Development environment ready"
+
+      - name: Generate vibenix cache
+        run: |
+          nix develop -c python -c '''
+          from vibenix.tools.search_related_packages import _get_builder_functions
+          from vibenix import config
+          config.init()
+          _get_builder_functions()'''
         
       - name: Create matrix from CSV
         id: create-matrix

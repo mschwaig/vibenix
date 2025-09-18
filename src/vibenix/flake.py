@@ -34,3 +34,7 @@ def update_flake(new_content):
     repo.git.add('-A')
     repo.index.commit("build step")
 
+def get_package_contents() -> str:
+    file_path = config.flake_dir / "package.nix"
+    with open(file_path, 'r') as file:
+        return file.read()

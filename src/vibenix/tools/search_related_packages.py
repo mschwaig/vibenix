@@ -2,6 +2,7 @@
 Includes:
     - get_builder_functions: Get list of all builder functions available in nixpkgs.
     - get_related_packages: Find packages using specified builder functions and optional keyword.
+        - created with a factory to capture builder function cache in closure.
 """
 
 import os
@@ -146,7 +147,15 @@ def _extract_builders(path: str, cache: List[str] = None) -> List[str]:
             raise ValueError(f"Path '{path}' is outside the allowed root directory '{root_dir}'")
         return target_path
 
-    new_path = _validate_path(path)
+    if not os.path.exists(path):
+        # Assume its a nix expression, place it in a temp file
+        from tempfile import NamedTemporaryFile
+        with NamedTemporaryFile(mode='w+', prefix="expr", suffix='.nix', delete=False) as tmp:
+            tmp.write(path)
+            tmp_path = tmp.name
+        new_path = tmp_path
+    else:
+        new_path = _validate_path(path)
     print("🔍 Searching for builder functions in:", new_path)
 
     builder_data = {}
@@ -187,6 +196,9 @@ def _extract_builders(path: str, cache: List[str] = None) -> List[str]:
             continue
         except subprocess.CalledProcessError:
             continue # Pattern might not match anything, continue with next pattern
+    # Clean up temp file if created
+    if not os.path.exists(path):
+        os.remove(new_path)
 
     if not cache:
         # Filter for functions that appear in more than one file and apply blacklist
@@ -278,23 +290,31 @@ def _find_qualified_path(function_name: str, helper_map: dict, langs: List[str])
         qualified_path = _test_language(lang)
         if qualified_path:
             return qualified_path
-    raise ValueError(f"Could not find qualified path for function: '{function_name}' and langinit{l}")
+    raise ValueError(f"Could not find qualified path for function: '{function_name}' ([{langs[0]}, {langs[1]}, ...])")
 
 
-@log_function_call("get_related_packages")
-def get_related_packages(chosen_builders: List[str], keyword: str = None) -> str:
-    """
-    Analyze nixpkgs for packages using specified builder functions and which include optional keyword.
-    
-    Args:
-        chosen_builders: List of builder functions to search for (in their fully qualified form)
-        keyword: Optional keyword to filter results by file content (e.g., a dependency name)
+def _create_get_related_packages(cache: List[str]):
+    """Factory function that returns get_related_packages with cache captured in closure."""
+    from vibenix.flake import get_package_contents
+    @log_function_call("get_related_packages")
+    def get_related_packages(chosen_builders: List[str] = None, keyword: str = None) -> str:
+        """
+        Analyze nixpkgs for packages using specified builder functions and which include optional keyword.
         
-    Returns:
-        A formatted string showing combination analysis
-    """
-    print(f"📞 Function called: get_related_packages with builders: {chosen_builders}{' and keyword: ' + keyword if keyword else ''}")
-    return _get_builder_combinations(chosen_builders, keyword)
+        Args:
+            chosen_builders: List of builder functions to search for (in their fully qualified form)
+            keyword: Optional keyword to filter results by file content (e.g., a dependency name)
+            
+        Returns:
+            A formatted string showing combination analysis
+        """
+        if not chosen_builders:
+            chosen_builders = _extract_builders(get_package_contents(), cache)
+            if not chosen_builders:
+                return "Unable to determine currently used builder functions in packaging expression."
+        print(f"📞 Function called: get_related_packages with builders: {chosen_builders}{' and keyword: ' + keyword if keyword else ''}")
+        return _get_builder_combinations(chosen_builders, keyword)
+    return get_related_packages
 
 def _get_builder_combinations(chosen_builders: List[str], keyword: str = None) -> str:
     ccl_logger = get_logger()
@@ -304,8 +324,7 @@ def _get_builder_combinations(chosen_builders: List[str], keyword: str = None) -
     except Exception as e:
         raise RuntimeError(f"Failed to get nixpkgs source path: {e}")
     
-    # Ensure mkDerivation is included
-    all_builders = list(set(chosen_builders)) #  + ["pkgs.stdenv.mkDerivation"]
+    all_builders = list(set(chosen_builders))
     ccl_logger.write_kv("chosen_builders", str(all_builders))
     
     print(f"Analyzing nixpkgs for builder usage: {all_builders}")

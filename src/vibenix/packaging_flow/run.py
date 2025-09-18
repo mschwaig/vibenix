@@ -269,16 +269,18 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
 
     # Compare chosen template with builders from model response
     from vibenix.tools.search_nixpkgs_manual import get_language_framework_overview, search_keyword_in_documentation
-    from vibenix.tools.search_related_packages import get_builder_functions, get_related_packages
+    from vibenix.tools.search_related_packages import get_builder_functions, _create_get_related_packages
+
+    available_builders = get_builder_functions()
+    get_related_packages = _create_get_related_packages(available_builders)
     additional_functions = project_functions + nixpkgs_functions + [get_language_framework_overview, search_keyword_in_documentation,
      get_builder_functions, get_related_packages]
 
-    available_builders = get_builder_functions()
     builders = choose_builders(available_builders, summary, project_functions+[get_language_framework_overview, search_keyword_in_documentation])  # Keep the model focused
     if len(builders) > 0:
         # Get builder combinations and random set of packages for each
-        builder_combinations = get_related_packages(builders)
-        coordinator_message(f"Builder combinations:\n{builder_combinations}")
+        builder_combinations = get_related_packages()
+        coordinator_message(builder_combinations)
         # Let model analyse and make changes
         response = compare_template_builders(initial_code, builder_combinations, summary, additional_functions)
         coordinator_message(f"Builder comparison response:\n{response}")
