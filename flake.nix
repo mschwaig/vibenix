@@ -58,6 +58,14 @@
               fi
             '';
           });
+          
+          # Add setuptools to madoka's build dependencies
+          madoka = prev.madoka.overrideAttrs (old: {
+            propagatedBuildInputs = (old.propagatedBuildInputs or []) ++ [ python.pkgs.setuptools ];
+            preBuild = ''
+              export PYTHONPATH="${python.pkgs.setuptools}/${python.sitePackages}:$PYTHONPATH"
+            '';
+          });
         };
 
         # Python package set with patched magentic and torch from nixpkgs
