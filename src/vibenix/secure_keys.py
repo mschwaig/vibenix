@@ -9,35 +9,24 @@ _using_file_backend = False
 _vibenix_keyring_path = None
 
 try:
-    # Test if a proper keyring backend is available
-    backend = keyring.get_keyring()
-    backend_name = backend.__class__.__name__
-    logger.info(f"Keyring backend: {backend_name}")
+    # Force use of PlaintextKeyring
+    from keyrings.alt.file import PlaintextKeyring
     
-    # Check if it's the fail backend (no keyring available)
-    if "fail" in backend_name.lower() or backend_name == "NullKeyring":
-        logger.warning("No secure keyring backend available")
-        _using_file_backend = True
-        
-        # Try to set up the PlaintextKeyring from keyrings.alt
-        try:
-            from keyrings.alt.file import PlaintextKeyring
-            
-            plain_keyring = PlaintextKeyring()
-            keyring.set_keyring(plain_keyring)
-            
-            # Get the actual path where keys will be stored
-            _vibenix_keyring_path = plain_keyring.file_path
-            
-            logger.info(f"Set up PlaintextKeyring at: {_vibenix_keyring_path}")
-            
-        except ImportError:
-            logger.error("keyrings.alt not available - please install it")
-            raise
-    else:
-        logger.info(f"Using secure keyring backend: {backend_name}")
+    plain_keyring = PlaintextKeyring()
+    keyring.set_keyring(plain_keyring)
+    
+    # Get the actual path where keys will be stored
+    _vibenix_keyring_path = plain_keyring.file_path
+    _using_file_backend = True
+    
+    logger.info(f"Set up PlaintextKeyring at: {_vibenix_keyring_path}")
+    
+except ImportError:
+    logger.error("keyrings.alt not available - please install it")
+    raise
 except Exception as e:
-    logger.error(f"Error checking keyring backend: {e}")
+    logger.error(f"Error setting up keyring: {e}")
+    raise
 
 def get_api_key(key_name: str) -> Optional[str]:
     """Get an API key from secure storage."""
