@@ -8,7 +8,14 @@ import json
 from typing import Optional, Dict, Any, Tuple
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.models.anthropic import AnthropicModel
+from pydantic_ai.providers.anthropic import AnthropicProvider
+from pydantic_ai.models.google import GoogleModel
+from pydantic_ai.providers.google import GoogleProvider
 from vibenix.ui.logging_config import logger
+
+# TODO: Add retry configuration for providers that support custom HTTP clients
+# For now, we'll use default retry behavior
 
 
 # Cache for model configuration to avoid repeated loading and logging
@@ -122,17 +129,52 @@ def initialize_model_config():
     global _cached_model
     
     config = get_model_config()
+    provider_name = config.get("provider", "openai")
+    model_name = config.get("model_name")
     
-    # Log configuration details once
-    if config.get("provider") == "openai" and "OPENAI_BASE_URL" in os.environ:
-        logger.info(f"Set OPENAI_BASE_URL to {os.environ['OPENAI_BASE_URL']}")
+    logger.info(f"Loaded configuration: {config.get('full_model', 'unknown')} from {provider_name}")
     
-    logger.info(f"Loaded configuration: {config.get('full_model', 'unknown')} from {config.get('provider', 'unknown')}")
+    # Create model based on provider
+    if provider_name == "anthropic":
+        # Get Anthropic API key - check environment first (as override), then secure storage
+        from vibenix.secure_keys import get_api_key
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            api_key = get_api_key("ANTHROPIC_API_KEY")
+            if not api_key:
+                raise ValueError("ANTHROPIC_API_KEY not found in environment or secure storage. Run interactively to configure.")
+        
+        logger.info(f"Using Anthropic model: {model_name}")
+        provider = AnthropicProvider(api_key=api_key)
+        _cached_model = AnthropicModel(model_name, provider=provider)
     
-    # Get API key from environment or use dummy
-    api_key = os.environ.get("OPENAI_API_KEY", "dummy")
+    elif provider_name == "gemini":
+        # Get Google API key - check environment first (as override), then secure storage
+        from vibenix.secure_keys import get_api_key
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            api_key = get_api_key("GEMINI_API_KEY")
+            if not api_key:
+                raise ValueError("GEMINI_API_KEY not found in environment or secure storage. Run interactively to configure.")
+        
+        logger.info(f"Using Gemini model: {model_name}")
+        provider = GoogleProvider(api_key=api_key)
+        _cached_model = GoogleModel(model_name, provider=provider)
     
-    # Create and cache the model
-    logger.info(f"Using model: {config['model_name']} at {config['base_url']}")
-    provider = OpenAIProvider(base_url=config["base_url"], api_key=api_key)
-    _cached_model = OpenAIModel(config["model_name"], provider=provider)
+    elif provider_name == "openai":
+        # OpenAI-compatible endpoints
+        base_url = config.get("base_url")
+        api_key = os.environ.get("OPENAI_API_KEY", "dummy")
+        
+        # Log configuration details
+        if "OPENAI_BASE_URL" in os.environ:
+            logger.info(f"Set OPENAI_BASE_URL to {os.environ['OPENAI_BASE_URL']}")
+        
+        logger.info(f"Using OpenAI-compatible model: {model_name} at {base_url}")
+        provider = OpenAIProvider(base_url=base_url, api_key=api_key)
+        _cached_model = OpenAIModel(model_name, provider=provider)
+    
+    else:
+        raise ValueError(f"Unknown provider: {provider_name}")
+    
+    logger.info(f"Model initialized successfully")
