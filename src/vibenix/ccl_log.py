@@ -140,7 +140,8 @@ class CCLLogger:
         """Log model configuration including pricing if available."""
         self.enter_attribute("model_config")
 
-        full_model = model_config.get("full_model", "")
+        from vibenix.model_config import get_model_name
+        full_model = get_model_name()
         self.write_kv("full_model", full_model)
 
         self.enter_attribute("model_settings")

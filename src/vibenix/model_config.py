@@ -104,8 +104,7 @@ def get_model_config() -> dict:
         _cached_config = {
             "provider": provider_name,
             "model_name": model_name,
-            "base_url": base_url,
-            "full_model": model
+            "base_url": base_url
         }
     else:
         # Default configuration
@@ -113,8 +112,7 @@ def get_model_config() -> dict:
         _cached_config = {
             "provider": "openai",
             "model_name": "qwen3-coder-30b-a3b",
-            "base_url": "http://llama.digidow.ins.jku.at:11434/v1/",
-            "full_model": "openai/qwen3-coder-30b-a3b"
+            "base_url": "http://llama.digidow.ins.jku.at:11434/v1/"
         }
     
     return _cached_config
@@ -135,8 +133,8 @@ def get_model():
 def get_model_name() -> str:
     """Get the current model name for logging."""
     config = get_model_config()
-    # Return the full model name with provider prefix for compatibility
-    return config.get("full_model", f"{config['provider']}/{config['model_name']}")
+    # Always construct the full model name with provider prefix
+    return f"{config['provider']}/{config['model_name']}"
 
 
 def load_model_settings_from_env(provider: str) -> Dict[str, Any]:
@@ -218,7 +216,7 @@ def initialize_model_config():
     provider_name = config.get("provider", "openai")
     model_name = config.get("model_name")
     
-    logger.info(f"Loaded configuration: {config.get('full_model', 'unknown')} from {provider_name}")
+    logger.info(f"Loaded configuration: {provider_name}/{config['model_name']} from {provider_name}")
     
     # Create model based on provider
     if provider_name == "anthropic":
