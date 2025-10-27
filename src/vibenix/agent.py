@@ -11,6 +11,7 @@ from pydantic_ai import Agent
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 from vibenix.model_config import get_model
 from vibenix.ui.conversation import get_ui_adapter, Message, Actor, Usage
+from vibenix.usage_utils import extract_usage_tokens
 from vibenix.ccl_log import get_logger
 import logging
 
@@ -92,10 +93,8 @@ class VibenixAgent:
             
             # Convert pydantic-ai usage to our Usage dataclass
             usage_data = result.usage() if hasattr(result, 'usage') else None
-            usage = Usage(
-                prompt_tokens=usage_data.details['input_tokens'] if usage_data else 0,
-                completion_tokens=usage_data.details['output_tokens'] if usage_data else 0,
-            )
+            prompt_tokens, completion_tokens = extract_usage_tokens(usage_data)
+            usage = Usage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
             
             # Handle both text and structured output
             output = result.output
@@ -136,10 +135,8 @@ class VibenixAgent:
                 
                 # Get usage data
                 usage_data = result.usage() if hasattr(result, 'usage') else None
-                usage = Usage(
-                    prompt_tokens=usage_data.details['input_tokens'] if usage_data else 0,
-                    completion_tokens=usage_data.details['output_tokens'] if usage_data else 0,
-                )
+                prompt_tokens, completion_tokens = extract_usage_tokens(usage_data)
+                usage = Usage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
                 
                 return full_response, usage
             
@@ -154,10 +151,8 @@ class VibenixAgent:
                     
                     # Get usage data
                     usage_data = result.usage() if hasattr(result, 'usage') else None
-                    usage = Usage(
-                        prompt_tokens=usage_data.details['input_tokens'] if usage_data else 0,
-                        completion_tokens=usage_data.details['output_tokens'] if usage_data else 0,
-                    )
+                    prompt_tokens, completion_tokens = extract_usage_tokens(usage_data)
+                    usage = Usage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
                     
                     return full_response, usage
             
