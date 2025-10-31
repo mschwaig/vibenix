@@ -284,11 +284,10 @@ def create_retrying_client():
 
     from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
     from pydantic_ai.retries import AsyncTenacityTransport, RetryConfig, wait_retry_after
-    from httpx import AsyncClient, HTTPStatusError
+    from httpx import AsyncClient, HTTPStatusError, Response
     from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential
-    from pydantic import BaseModel
 
-    def should_retry_status(response: BaseModel):
+    def should_retry_status(response: Response):
         """Raise exceptions for retryable HTTP status codes."""
         if response.status_code in (429, 502, 503, 504):
             response.raise_for_status()  # This will raise HTTPStatusError
@@ -298,7 +297,7 @@ def create_retrying_client():
         config = RetryConfig(
             retry=retry_if_exception_type((HTTPStatusError,  ConnectionError)),
             wait=wait_retry_after(
-                fallback_strategy=wait_exponential(multiplier=3, max=60),
+                fallback_strategy=wait_exponential(multiplier=5, min=3, max=60),
                 max_wait=300
             ),
             stop=stop_after_attempt(5),
