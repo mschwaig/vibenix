@@ -8,7 +8,7 @@ from vibenix.tools.search_nixpkgs_file import search_nixpkgs_for_file
 from vibenix.tools.search_nixpkgs_manual_documentation import search_nixpkgs_manual_documentation
 from vibenix.tools.str_replace import str_replace
 from vibenix.tools.view import view
-from vibenix.tools.insert import insert
+from vibenix.tools.insert_line_after import insert_line_after
 from vibenix.tools.error_pagination import error_pagination
 from vibenix.tools.build_package import build_package
 
@@ -20,6 +20,7 @@ __all__ = [
     'search_nixpkgs_for_file',
     'search_nixpkgs_manual_documentation',
     'str_replace',
+    'insert_line_after',
     'view',
     'error_pagination',
     'build_package',

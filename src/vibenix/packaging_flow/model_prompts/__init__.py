@@ -15,7 +15,7 @@ from vibenix.tools import (
     search_nixpkgs_for_file,
     search_nixpkgs_manual_documentation,
     str_replace,
-    insert,
+    insert_line_after,
     view,
     error_pagination,
 )
@@ -32,7 +32,7 @@ SEARCH_FUNCTIONS = [
     search_nixpkgs_for_file,
     search_nixpkgs_manual_documentation,
 ]
-EDIT_FUNCTIONS = [error_pagination, str_replace, view]
+EDIT_FUNCTIONS = [error_pagination, str_replace, insert_line_after, view]
 ALL_FUNCTIONS = SEARCH_FUNCTIONS + EDIT_FUNCTIONS
 
 ask_model_prompt = model_prompt_manager.ask_model_prompt
@@ -89,7 +89,7 @@ def refine_code(
     project_page: Optional[str] = None,
     template_notes: Optional[str] = None,
     additional_functions: List = []
-) -> str:
+) -> None:
     """Refine a nix package based on feedback."""
     ...
 
@@ -107,13 +107,13 @@ def fix_build_error(
     is_syntax_error: bool = False,
     attempted_tool_calls: List = [],
     tool_call_collector: List = None
-) -> str:
+) -> None:
     """Fix a build error in Nix code."""
     ...
 
 
 @ask_model_prompt('error_fixing/fix_hash_mismatch.md', functions=EDIT_FUNCTIONS)
-def fix_hash_mismatch(code: str, error: str) -> str:
+def fix_hash_mismatch(code: str, error: str) -> None:
     """Fix hash mismatch errors in Nix code."""
     ...
 
@@ -197,7 +197,7 @@ def compare_template_builders(
     initial_code: str,
     builder_combinations_info: str,
     project_page: Optional[str] = None,
-    additional_functions: List = []) -> str:
+    additional_functions: List = []) -> None:
     """Compare the template builders with ones from choose_builders."""
     ...
 

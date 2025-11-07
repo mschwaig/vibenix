@@ -5,28 +5,17 @@ from vibenix.flake import update_flake, get_package_contents
 from difflib import unified_diff
 
 
-@log_function_call("insert")
-def insert(insert_line: int, new_str: str) -> str:
-    """Insert text at a specific line in the current packaging expression.
-    Specify the line number **AFTER WHICH**, to insert the new text.
+@log_function_call("insert_line_after")
+def insert_line_after(line_number: int, new_content: str) -> str:
+    """Inserts a new line of content after a specified line number.
+    Pushes the line already at line_number and all following lines down by one.
     
     Args:
-        **insert_line: The line number after which to insert the text (0 for beginning of file)**
-        new_str: The text to insert as a new line
-
-    Example:
-        # If file has lines: 
-        1: line one
-        2: line two
-        # and you call:
-        insert(1, "inserted line")
-        # you get:
-        1: line one
-        2: inserted line
-        3: line two
+      new_content: The string to be inserted as a new line.
+      line_number: The line number after which the new content will be inserted.
     """
-    print(f"📞 Function called: insert")
-    return _insert(insert_line, new_str)
+    print(f"📞 Function called: insert_line_after")
+    return _insert(line_number, new_content)
 
 
 def _insert(insert_line: int, new_str: str) -> str:
