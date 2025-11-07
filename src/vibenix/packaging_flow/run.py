@@ -286,8 +286,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
 
     # Step 7: Agentic loop
     coordinator_progress("Testing the initial build...")
-    initial_result, initial_hash = execute_build_and_add_to_stack(initial_code)
-    best = Solution(code=initial_code, result=initial_result, commit_hash=initial_hash)
+    best = execute_build_and_add_to_stack(initial_code)
 
     ccl_logger.log_initial_build(view_package_contents(), best.result)
     ccl_logger.enter_attribute("iterate")
@@ -388,8 +387,8 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
             
         # Test the fix
         coordinator_progress(f"Iteration {iteration + 1}: Testing fix attempt {iteration + 1} of {MAX_ITERATIONS}...")
-        new_result, new_hash = execute_build_and_add_to_stack(updated_code)
-        candidate = Solution(code=updated_code, result=new_result, commit_hash=new_hash)
+        candidate = execute_build_and_add_to_stack(updated_code)
+        new_result = candidate.result
         
         # Log the build result
         ccl_logger.enter_attribute("build", log_start=True)
@@ -473,9 +472,19 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     ccl_logger.write_kv("raw_package", candidate.code)
     
     if candidate.result.success:
+        packaging_usage = model_prompt_manager.get_session_usage()
         coordinator_message("Build succeeded! Refining package...")
         candidate = refine_package(candidate, summary, additional_functions)
         ccl_logger.write_kv("refined_package", candidate.code)
+
+        refinement_usage = model_prompt_manager.get_session_usage() - packaging_usage
+        ccl_logger.log_refinement_cost(
+            packaging_usage.calculate_cost(),
+            refinement_usage.calculate_cost(),
+            refinement_usage.prompt_tokens,
+            refinement_usage.completion_tokens,
+            refinement_usage.cache_read_tokens
+        )
         
         # Always log success and return, regardless of refinement outcome
         ccl_logger.log_session_end(signal=None, total_cost=model_prompt_manager.get_session_cost())

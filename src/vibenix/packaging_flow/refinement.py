@@ -39,8 +39,7 @@ def refine_package(curr: Solution, project_page: str, additional_functions: list
         refine_code(code_lines, feedback, project_page)
         updated_code = get_package_contents()
         ccl_logger.write_kv("refined_code", updated_code)
-        updated_res, updated_hash = execute_build_and_add_to_stack(updated_code)
-        attempt = Solution(code=updated_code, result=updated_res, commit_hash=updated_hash)
+        attempt = execute_build_and_add_to_stack(updated_code)
         
         # Verify the updated code still builds
         if not attempt.result.success:

@@ -182,3 +182,11 @@ class Usage:
 
         from vibenix.model_config import calc_model_pricing
         return calc_model_pricing(self.model, self.prompt_tokens, self.completion_tokens, self.cache_read_tokens)
+
+    def __sub__(self, other: 'Usage') -> 'Usage':
+        return Usage(
+            prompt_tokens=self.prompt_tokens - other.prompt_tokens,
+            completion_tokens=self.completion_tokens - other.completion_tokens,
+            cache_read_tokens=self.cache_read_tokens - other.cache_read_tokens,
+            model=self.model
+        )

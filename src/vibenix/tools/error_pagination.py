@@ -17,7 +17,7 @@ def _error_pagination(page: int) -> str:
     try:
         from vibenix.config import config
         if config.error_stack is None or len(config.error_stack) == 0:
-            return "No errors recorded."
+            return "No errors available to paginate through."
         error = config.error_stack[-1]
         return error.truncated(page=page)
         

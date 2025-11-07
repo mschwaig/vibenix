@@ -116,7 +116,7 @@ def search_nixpkgs_manual_documentation(framework_or_keyword: str, page: int = 1
         start_line = (page-1) * max_lines_per_page
         end_line = start_line + max_lines_per_page
         paginated_content = '\n'.join(lines[start_line:end_line])
-        return f"(Documentation for: '{framework_or_keyword}') (Showing page {page} of {total_pages}):\n\n"+ paginated_content + f"\n\n(To read more, call tool again with higher page number)"
+        return f"(Documentation for: '{framework_or_keyword}', showing page {page} out of {total_pages}):\n\n"+ paginated_content
         
     except PermissionError:
         raise PermissionError(f"Permission denied reading file: {framework_file}")

@@ -55,9 +55,6 @@ def create_source_function_calls(store_path: str, prefix: str = "") -> List[Call
         print(f"📞 Function called: {prefix}list_directory_contents with path: ", relative_path)
         try:
             _validate_path(relative_path)
-            # Verify that we aren't trying to list a "/doc" directory in nixpkgs, if so advise to use the appropriate tool
-            if prefix == "nixpkgs_" and "doc/languages-frameworks" in relative_path:
-                return "For viewing language and framework documentation in nixpkgs, use the `search_nixpkgs_manual_documentation` tool."
             # Use command ls -lha to list directory contents
             cmd = f'ls -lha {store_path}/{relative_path}'
             result = subprocess.run(cmd, shell=True, text=True, capture_output=True)
@@ -78,20 +75,19 @@ def create_source_function_calls(store_path: str, prefix: str = "") -> List[Call
         print(f"📞 Function called: {prefix}read_file_content with path: ", relative_path)
         try:
             path = _validate_path(relative_path)
-            # Verify that we aren't trying to read a "/doc" directory in nixpkgs, if so advise to use the appropriate tool
-            if prefix == "nixpkgs_" and "doc/languages-frameworks" in relative_path:
-                return "For viewing language and framework documentation in nixpkgs, use the `search_nixpkgs_manual_documentation` tool."
             if not _is_text_file(path):
                 return f"File '{relative_path}' is not a text file. {detect_file_type_and_size(relative_path)}."
 
-            number_lines_to_read = min(max(1, number_lines_to_read), MAX_LINES_TO_READ)
+            number_lines_to_read = min(max(0, number_lines_to_read), MAX_LINES_TO_READ)
             with open(path, 'r', encoding='utf-8') as file:
                 content = file.read()
                 sliced_lines = islice(content.splitlines(keepends=True), line_offset, line_offset + number_lines_to_read)
                 # limit individual line length
-                sliced_lines = [line if len(line) <= MAX_LINE_LENGTH else line[:MAX_LINE_LENGTH] + "... (truncated)\n" for line in sliced_lines]
+                sliced_lines = [line if len(line) <= MAX_LINE_LENGTH else line[:MAX_LINE_LENGTH] + " (... truncated)\n" for line in sliced_lines]
                 total_lines = len(content.splitlines())
-                return "".join(sliced_lines) + f"\n... (showing lines {line_offset} to {min(line_offset + number_lines_to_read, total_lines)}, out of {total_lines} total lines)"
+                if line_offset >= total_lines:
+                    return f"Line offset '{line_offset}' is beyond the end of the file which has {total_lines} lines."
+                return "".join(sliced_lines) + f"\n(showing lines {line_offset} to {min(line_offset + number_lines_to_read, total_lines)}, out of {total_lines} total lines)"
         except Exception as e:
             return f"Error reading file content: {str(e)}"
     

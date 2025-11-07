@@ -17,6 +17,7 @@ from vibenix.tools import (
     str_replace,
     insert,
     view,
+    error_pagination,
 )
 from vibenix.errors import NixBuildErrorDiff, LogDiff, FullLogDiff, ProcessedLogDiff
 
@@ -31,8 +32,8 @@ SEARCH_FUNCTIONS = [
     search_nixpkgs_for_file,
     search_nixpkgs_manual_documentation,
 ]
-EDIT_FUNCTIONS = [str_replace, view]
-SEARCH_AND_EDIT_FUNCTIONS = SEARCH_FUNCTIONS + EDIT_FUNCTIONS
+EDIT_FUNCTIONS = [error_pagination, str_replace, view]
+ALL_FUNCTIONS = SEARCH_FUNCTIONS + EDIT_FUNCTIONS
 
 ask_model_prompt = model_prompt_manager.ask_model_prompt
 
@@ -81,7 +82,7 @@ def get_feedback(
 
 
 @run_formatter_after
-@ask_model_prompt('refinement/refine_code.md', functions=SEARCH_AND_EDIT_FUNCTIONS)
+@ask_model_prompt('refinement/refine_code.md', functions=ALL_FUNCTIONS)
 def refine_code(
     code: str,
     feedback: str,
@@ -94,7 +95,7 @@ def refine_code(
 
 
 @run_formatter_after
-@ask_model_prompt('error_fixing/fix_build_error.md', functions=SEARCH_AND_EDIT_FUNCTIONS)
+@ask_model_prompt('error_fixing/fix_build_error.md', functions=ALL_FUNCTIONS)
 def fix_build_error(
     code: str,
     error: str,
