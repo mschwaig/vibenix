@@ -6,7 +6,7 @@ This module provides model configuration compatible with the previous litellm-ba
 import os
 import json
 from typing import Optional, Dict, Any, Tuple
-from pydantic_ai.models.openai import OpenAIModel, OpenAIModelSettings
+from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
 from pydantic_ai.providers.anthropic import AnthropicProvider
@@ -53,7 +53,8 @@ def load_saved_configuration() -> Optional[Tuple[str, str, Optional[str], Option
 
 
 def get_model_config() -> dict:
-    """Get the model configuration from env, saved config, and defaults."""
+    """Get the model configuration from saved config, and model settings from env."""
+    
     global _cached_config
     
     # Return cached config if available
@@ -92,11 +93,14 @@ def get_model_config() -> dict:
     else:
         # Default configuration
         logger.info("No saved configuration found, using defaults")
+        provider_name = "openai"
         _cached_config = {
             "provider": "openai",
             "model_name": "qwen3-coder-30b-a3b",
             "base_url": "http://llama.digidow.ins.jku.at:11434/v1/"
         }
+    model_settings = load_model_settings_from_env(provider_name)
+    _cached_config["model_settings"] = model_settings
     
     return _cached_config
 
@@ -177,14 +181,14 @@ def create_gemini_settings(settings: Dict[str, Any]) -> GoogleModelSettings:
     return GoogleModelSettings(**merged_settings)
 
 
-def create_openai_settings(settings: Dict[str, Any]) -> OpenAIModelSettings:
-    """Create OpenAIModelSettings from config dict."""
+def create_openai_settings(settings: Dict[str, Any]) -> OpenAIChatModelSettings:
+    """Create OpenAIChatModelSettings from config dict."""
     # Use constants for defaults
     defaults = DEFAULT_MODEL_SETTINGS["openai"].copy()
     
     merged_settings = {**defaults, **settings}
     logger.info(f"Creating OpenAI settings: max_tokens={merged_settings.get('max_tokens')}, temperature={merged_settings.get('temperature')}")
-    return OpenAIModelSettings(**merged_settings)
+    return OpenAIChatModelSettings(**merged_settings)
 
 
 def create_anthropic_settings(settings: Dict[str, Any]) -> AnthropicModelSettings:
@@ -254,7 +258,7 @@ def initialize_model_config():
         
         env_settings = load_model_settings_from_env("openai")
         model_settings = create_openai_settings(env_settings)
-        _cached_model = OpenAIModel(config["model_name"], provider=provider, settings=model_settings)
+        _cached_model = OpenAIChatModel(config["model_name"], provider=provider, settings=model_settings)
 
 
 def calc_model_pricing(model: str, prompt_tokens: int, completion_tokens: int,
