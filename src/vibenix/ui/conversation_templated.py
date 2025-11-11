@@ -16,6 +16,7 @@ from vibenix.ui.conversation import (
     Actor,
     get_ui_adapter
 )
+from vibenix.defaults import get_settings_manager
 
 from vibenix.packaging_flow.model_prompts.prompt_loader import get_prompt_loader
 from vibenix.agent import VibenixAgent
@@ -61,7 +62,7 @@ class ModelPromptManager:
         self._iteration_usage = Usage(model=self._model)
     #####
 
-    def ask_model_prompt(self, template_path: str, functions: Optional[List[Callable]] = None):
+    def ask_model_prompt(self, template_path: str):
         """Decorator for model interactions using prompt templates.
     
         This decorator uses pydantic-ai to interact with the model.
@@ -74,10 +75,10 @@ class ModelPromptManager:
             # Get return type hint
             type_hints = get_type_hints(func)
             return_type = type_hints.get('return', type(None))
-            # OutputFunctions returntype workaround -> check if the class is abstract
-            if inspect.isclass(return_type) and (ABC in return_type.__bases__):
-                # Get the same named method from the return type class
-                return_type = getattr(return_type, return_type.__name__, None)
+
+            prompt_key = template_path.split('/')[-1].replace('.md', '')
+            if get_settings_manager().is_edit_tools_prompt(prompt_key) and get_settings_manager().get_edit_tools_enabled():
+                return_type = type(None)
 
             # Determine output type and whether to use streaming
             is_streaming = return_type == str
@@ -108,6 +109,12 @@ class ModelPromptManager:
                 # Load and render the template
                 prompt_loader = get_prompt_loader()
                 rendered_prompt = prompt_loader.load(template_path, **template_context)
+
+                # Add additional snippets TODO move to prompt itself
+                prompt_key = template_path.split('/')[-1].replace('.md', '')
+                if get_settings_manager().is_edit_tools_prompt(prompt_key):
+                    edit_tools_snippet = get_settings_manager().get_edit_tools_snippet(prompt_key)
+                    rendered_prompt += "\n\n" + edit_tools_snippet
                 
                 # Show coordinator message (first line or whole prompt if short)
                 first_line = f"({template_path}): " + rendered_prompt.split('\n')[0]
@@ -122,6 +129,7 @@ class ModelPromptManager:
                     # For strings, we don't need structured output
                     agent = VibenixAgent()
                 
+                functions = get_settings_manager().get_functions_for_prompt(prompt_key)
                 # Add tools to the agent
                 all_functions = (functions or []) + additional_functions
                 for tool_func in all_functions:

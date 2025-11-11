@@ -24,16 +24,6 @@ from vibenix.errors import NixBuildErrorDiff, LogDiff, FullLogDiff, ProcessedLog
 # Re-export enums
 from vibenix.packaging_flow.model_prompts.enums import RefinementExit, PackagingFailure
 
-# Standard search functions for all prompts that need them
-SEARCH_FUNCTIONS = [
-    search_nixpkgs_for_package_semantic,
-    search_nixpkgs_for_package_literal,
-    search_nix_functions,
-    search_nixpkgs_for_file,
-    search_nixpkgs_manual_documentation,
-]
-EDIT_FUNCTIONS = [error_pagination, str_replace, insert_line_after, view]
-ALL_FUNCTIONS = SEARCH_FUNCTIONS + EDIT_FUNCTIONS
 
 ask_model_prompt = model_prompt_manager.ask_model_prompt
 
@@ -69,7 +59,7 @@ def evaluate_code(code: str, previous_code: str, feedback: str) -> RefinementExi
     ...
 
 
-@ask_model_prompt('refinement/get_feedback.md', functions=SEARCH_FUNCTIONS)
+@ask_model_prompt('refinement/get_feedback.md')
 def get_feedback(
     code: str,
     project_page: Optional[str] = None,
@@ -82,20 +72,20 @@ def get_feedback(
 
 
 @run_formatter_after
-@ask_model_prompt('refinement/refine_code.md', functions=ALL_FUNCTIONS)
+@ask_model_prompt('refinement/refine_code.md')
 def refine_code(
     code: str,
     feedback: str,
     project_page: Optional[str] = None,
     template_notes: Optional[str] = None,
     additional_functions: List = []
-) -> None:
+) -> str:
     """Refine a nix package based on feedback."""
     ...
 
 
 @run_formatter_after
-@ask_model_prompt('error_fixing/fix_build_error.md', functions=ALL_FUNCTIONS)
+@ask_model_prompt('error_fixing/fix_build_error.md')
 def fix_build_error(
     code: str,
     error: str,
@@ -107,17 +97,18 @@ def fix_build_error(
     is_syntax_error: bool = False,
     attempted_tool_calls: List = [],
     tool_call_collector: List = None
-) -> None:
+) -> str:
     """Fix a build error in Nix code."""
     ...
 
 
-@ask_model_prompt('error_fixing/fix_hash_mismatch.md', functions=EDIT_FUNCTIONS)
-def fix_hash_mismatch(code: str, error: str) -> None:
+@ask_model_prompt('error_fixing/fix_hash_mismatch.md')
+def fix_hash_mismatch(code: str, error: str) -> str:
     """Fix hash mismatch errors in Nix code."""
     ...
 
 
+# TODO Not managed by settings
 def evaluate_progress(log_diff: LogDiff) -> NixBuildErrorDiff:
     """Evaluate if the build made progress by comparing logs."""
     if isinstance(log_diff, FullLogDiff):
@@ -162,7 +153,7 @@ def classify_packaging_failure(details: str) -> PackagingFailure:
     ...
 
 
-@ask_model_prompt('failure_analysis/analyze_packaging_failure.md', functions=SEARCH_FUNCTIONS)
+@ask_model_prompt('failure_analysis/analyze_packaging_failure.md')
 def analyze_package_failure(
     code: str,
     error: str,
@@ -174,7 +165,7 @@ def analyze_package_failure(
     ...
 
 
-@ask_model_prompt('summarize_build.md', functions=[])
+@ask_model_prompt('summarize_build.md')
 def summarize_build(
     summary: Optional[str] = None,
     additional_functions: List = []) -> str:
@@ -182,7 +173,7 @@ def summarize_build(
     ...
 
 
-@ask_model_prompt('choose_builders.md', functions=[])
+@ask_model_prompt('choose_builders.md')
 def choose_builders(
     available_builders: List[str],
     project_page: Optional[str] = None,
@@ -192,13 +183,29 @@ def choose_builders(
 
 
 @run_formatter_after
-@ask_model_prompt('compare_template_builders.md', functions=[search_nix_functions, search_nixpkgs_manual_documentation]+EDIT_FUNCTIONS)
+@ask_model_prompt('compare_template_builders.md')
 def compare_template_builders(
     initial_code: str,
     builder_combinations_info: str,
     project_page: Optional[str] = None,
-    additional_functions: List = []) -> None:
+    additional_functions: List = []) -> str:
     """Compare the template builders with ones from choose_builders."""
     ...
 
-# Import logger callbacks - use the global instance
+
+__all__ = [
+    "pick_template",
+    "summarize_github",
+    "evaluate_code",
+    "get_feedback",
+    "refine_code",
+    "fix_build_error",
+    "fix_hash_mismatch",
+    "evaluate_progress",
+    "classify_packaging_failure",
+    "analyze_package_failure",
+    "summarize_build",
+    "choose_builders",
+    "compare_template_builders",
+]
+ALL_PROMPTS = __all__

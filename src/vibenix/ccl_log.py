@@ -352,7 +352,7 @@ def close_logger():
         _logger = None
 
 
-def log_function_call(function_name: str, indent_level: int = 2):
+def log_function_call(function_name: str, indent_level: int = 2, do_print: bool = True):
     """Decorator to log function calls with their arguments and results."""
     def decorator(func):
         @functools.wraps(func)
@@ -361,7 +361,7 @@ def log_function_call(function_name: str, indent_level: int = 2):
             logger._function_begin(function_name, indent_level, **kwargs)
             
             result = func(*args, **kwargs)
-            if result != None:
+            if result != None and do_print:
                 print(result)
             
             logger._function_end(function_name, result, indent_level)

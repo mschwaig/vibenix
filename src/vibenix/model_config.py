@@ -15,24 +15,7 @@ from pydantic_ai.providers.google import GoogleProvider
 from vibenix.ui.logging_config import logger
 
 
-# Default model settings for different providers
-DEFAULT_MODEL_SETTINGS = {
-    "gemini": {
-    },
-    "anthropic": {
-        "anthropic_thinking": { "type": "disabled" },
-        "parallel_tool_calls": False,
-    },
-    "openai": {
-        "max_tokens": 32768,
-        "temperature": 0.1,      # Lower temperature for focused responses
-        "thinking_budget": 16384,
-        "parallel_tool_calls": False,
-    }
-}
-DEFAULT_USAGE_LIMITS = {
-}
-
+from vibenix.defaults import DEFAULT_MODEL_SETTINGS, DEFAULT_USAGE_LIMITS
 # Cache for model configuration to avoid repeated loading and logging
 _cached_config = None
 _cached_model = None

@@ -23,5 +23,3 @@ Strictly adhere to the following constraints:
 *   Do NOT add, remove, or modify any package dependencies (e.g., `buildInputs`, `nativeBuildInputs`). The model should not add any new packages to the build.
 *   Do NOT alter the `src`, `pname`, `version`, or any other metadata attributes.
 *   Do NOT make any stylistic changes, add comments, or refactor the code unnecessarily. Your changes must be purely functional and directly related to the builder logic.
-
-**IMPORTANT**: To perform each change to the code, use the text editor tools: `str_replace`, `view`. Finally, reply with a very brief summary of the changes made.

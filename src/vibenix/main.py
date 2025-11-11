@@ -118,18 +118,30 @@ def run_terminal_ui(output_dir=None, project_url=None, revision=None, fetcher=No
     # If project URL is provided, skip interactive configuration
     if project_url:
         from vibenix.model_config import load_saved_configuration, initialize_model_config
-        saved_config = load_saved_configuration()
+        from vibenix.ui.raw_terminal.terminal_vibenix_settings import ensure_settings_configured
+
+        saved_config = load_saved_configuration() # Model configuration (provider, model_name)
+
         if not saved_config:
             logger.error("No saved model configuration found. Please run interactively first to configure.")
             sys.exit(1)
-        # Initialize and log configuration once
+
+        ensure_settings_configured() # Vibenix settings
+
+        # Initialize and log model configuration once
         initialize_model_config()
     else:
         # Interactive mode - prompt for configuration if needed
         from vibenix.ui.raw_terminal.terminal_model_config import ensure_model_configured
+        from vibenix.ui.raw_terminal.terminal_vibenix_settings import ensure_settings_configured
+        
         if not ensure_model_configured():
             logger.error("Model configuration required to continue")
             sys.exit(1)
+        
+        # Ensure settings are configured (loads existing or prompts user)
+        ensure_settings_configured()
+        
         # Initialize after configuration is complete
         from vibenix.model_config import initialize_model_config
         initialize_model_config()
@@ -174,6 +186,7 @@ def main():
   vibenix --raw                                   # Run with terminal-only interface
   vibenix --raw https://github.com/user/repo      # Package a specific repo
   vibenix --raw --output-dir out https://github.com/user/repo  # Save output
+  vibenix --configure-settings                    # Configure vibenix settings
   vibenix --help                                  # Show this help
 """
     )
@@ -182,6 +195,12 @@ def main():
         "--raw",
         action="store_true",
         help="Use terminal-only interface instead of textual UI"
+    )
+    
+    parser.add_argument(
+        "--configure-vibenix",
+        action="store_true",
+        help="Configure vibenix settings (tools, prompts, behaviour)"
     )
     
     parser.add_argument(
@@ -218,6 +237,12 @@ def main():
     args = parser.parse_args()
     
     try:
+        if args.configure_vibenix:
+            logger.info("Starting vibenix settings configuration")
+            from vibenix.ui.raw_terminal.terminal_vibenix_settings import show_vibenix_settings_terminal
+            show_vibenix_settings_terminal()
+            sys.exit(0)
+        
         if args.raw:
             logger.info("Starting vibenix in terminal mode")
             if args.output_dir and not args.project_url:

@@ -23,6 +23,7 @@ from vibenix.ccl_log import init_logger, get_logger, close_logger, enum_str
 from vibenix.git_info import get_git_info
 from vibenix.tools.view import _view as view_package_contents
 from vibenix.tools.error_pagination import error_pagination
+from vibenix.defaults.vibenix_settings import get_settings_manager
 
 
 def get_nixpkgs_source_path() -> str:
@@ -171,8 +172,12 @@ def compare_template(available_builders, initial_code,
     from vibenix.tools.search_related_packages import _extract_builders
 
     builders = choose_builders(available_builders, summary, additional_functions)
+    if not choose_builders:
+        raise RuntimeError("Model failed to choose builders for comparison.")
     builders_set = set(builder.split(".")[-1].strip("'\"") for builder in builders) # has happened it reply with '"pkgs.(...)"'
-    template_builders = _extract_builders(initial_code, available_builders)
+    print(f"Initial code: ```nix\n{initial_code}\n```")
+    print(f"Available builders: {available_builders}")
+    template_builders = _extract_builders(initial_code, available_builders) or []
     template_builders = set(builder.split(".")[-1] for builder in template_builders)
     if len(builders) > 0 and builders_set != template_builders:
         # Get builder combinations and random set of packages for each
@@ -238,6 +243,10 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     ccl_logger.log_project_summary_begin()
     summary = analyze_project(project_page)
     ccl_logger.log_project_summary_end(summary)
+    
+    if not summary:
+        coordinator_message("Failed to analyze project. Proceeding with empty project summary.")
+        summary = ""
 
     # Step 4: Initialize flake
     coordinator_progress("Setting up a temporary Nix flake for packaging")
@@ -246,6 +255,8 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     
     ccl_logger.log_template_selected_begin()
     template_type = pick_template(summary)
+    if not template_type:
+        raise RuntimeError("Model failed to pick a template type.")
     coordinator_message(f"Selected template: {template_type.value}")
     template_filename = f"{template_type.value}.nix"
     template_path = config.template_dir / template_filename
@@ -277,10 +288,15 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     find_similar_builder_patterns = _create_find_similar_builder_patterns(available_builders)
     additional_functions = project_functions + nixpkgs_functions
 
-    build_summary = summarize_build(summary, additional_functions)
-    summary += f"\n\nBuild Summary:\n{build_summary}"
+    if get_settings_manager().get_build_summary_enabled():
+        build_summary = summarize_build(summary, additional_functions)
+        if not build_summary:
+            coordinator_error("Model failed to produce a build summary.")
+            raise RuntimeError("Model failed to produce a build summary.")
+        summary += f"\n\nBuild Summary:\n{build_summary}"
 
-    initial_code = compare_template(available_builders, initial_code, find_similar_builder_patterns, summary, additional_functions)
+    if get_settings_manager().get_compare_template_builders_enabled():
+        initial_code = compare_template(available_builders, initial_code, find_similar_builder_patterns, summary, additional_functions)
     additional_functions += [get_builder_functions, find_similar_builder_patterns]
     coordinator_message(f"Initial package code:\n```nix\n{initial_code}\n```")
 
@@ -410,10 +426,12 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
                 elif best.result.error == candidate.result.error:
                     eval_result = NixBuildErrorDiff.REGRESS
                 else:
-                    ccl_logger.log_progress_eval_start()
-                    eval_result = eval_progress(best.result, candidate.result, iteration)
-                    ccl_logger.log_progress_eval_end(eval_result)
-                
+                    if get_settings_manager().get_progress_evaluation_enabled():
+                        ccl_logger.log_progress_eval_start()
+                        eval_result = eval_progress(best.result, candidate.result, iteration)
+                        ccl_logger.log_progress_eval_end(eval_result)
+                    else:
+                        eval_result = NixBuildErrorDiff.PROGRESS
                 if eval_result == NixBuildErrorDiff.PROGRESS:
                     coordinator_message(f"Iteration {iteration + 1} made progress...")
                     best = candidate

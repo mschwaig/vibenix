@@ -1,0 +1,17 @@
+{
+    "gemini": {
+        "seed": 42
+    },
+    "anthropic": {
+        "anthropic_thinking": { "type": "disabled" },
+        "parallel_tool_calls": false,
+        "seed": 42
+    },
+    "openai": {
+        "max_tokens": 32768,
+        "temperature": 0.1,
+        "thinking_budget": 16384,
+        "parallel_tool_calls": false,
+        "seed": 42
+    }
+}
