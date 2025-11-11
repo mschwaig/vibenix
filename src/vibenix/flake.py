@@ -1,33 +1,46 @@
 import shutil
 import os
 import git
+from jinja2 import Template
 
 from vibenix import config
 from vibenix.ui.logging_config import logger
+from vibenix.nixpkgs_lock import get_nixpkgs_lock_info
 
 
 def init_flake():
 
     logger.info(f"Creating flake at {config.flake_dir} from reference directory {config.template_dir}")
-    
-    def ignore_problematic_symlinks(src, names):
-        """Ignore 'result' directories and other problematic symlinks that could cause infinite loops."""
-        ignored = []
-        for name in names:
-            src_path = os.path.join(src, name)
-            if name == 'result' or (os.path.islink(src_path) and not os.path.exists(src_path)):
-                ignored.append(name)
-        return ignored
-    
-    shutil.copytree(config.template_dir, config.flake_dir, dirs_exist_ok=True, ignore=ignore_problematic_symlinks)
 
-    # Ensure the directory and all files have proper permissions
-    os.chmod(config.flake_dir, 0o755)
-    for root, dirs, files in os.walk(config.flake_dir):
-        for d in dirs:
-            os.chmod(os.path.join(root, d), 0o755)
-        for f in files:
-            os.chmod(os.path.join(root, f), 0o644)
+    # Create the flake directory
+    os.makedirs(config.flake_dir, mode=0o755, exist_ok=True)
+
+    # Copy only the necessary files
+    files_to_copy = ['flake.nix', 'package.nix']
+
+    for filename in files_to_copy:
+        src = config.template_dir / filename
+        dst = config.flake_dir / filename
+        if src.exists():
+            shutil.copy2(src, dst)
+            os.chmod(dst, 0o644)
+
+    # Generate flake.lock from template
+    template_path = config.template_dir / 'flake.lock.j2'
+    with open(template_path, 'r') as f:
+        template = Template(f.read())
+
+    # Get nixpkgs lock info for the configured commit
+    lock_info = get_nixpkgs_lock_info(config.nixpkgs_commit)
+
+    # Render the template
+    flake_lock_content = template.render(**lock_info)
+
+    # Write flake.lock
+    flake_lock_path = config.flake_dir / 'flake.lock'
+    with open(flake_lock_path, 'w') as f:
+        f.write(flake_lock_content)
+    os.chmod(flake_lock_path, 0o644)
 
     repo = git.Repo.init(config.flake_dir.as_posix())
     repo.git.add('-A')
