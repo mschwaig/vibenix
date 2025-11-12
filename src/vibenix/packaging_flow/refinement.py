@@ -14,7 +14,8 @@ from vibenix.ui.conversation_templated import model_prompt_manager
 
 def refine_package(curr: Solution, project_page: str, additional_functions: list = None) -> Solution:
     """Refinement cycle to improve the packaging."""
-    max_iterations = 3
+    from vibenix.defaults import get_settings_manager
+    max_iterations = get_settings_manager().get_setting_value("refinement.iterations")
 
     from vibenix.ccl_log import get_logger, close_logger
     ccl_logger = get_logger()

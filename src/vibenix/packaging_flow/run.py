@@ -166,12 +166,12 @@ def read_fetcher_file(fetcher: str) -> tuple[str, str]:
 
 
 def compare_template(available_builders, initial_code,
-                     find_similar_builder_patterns, summary, additional_functions) -> str:
+                     find_similar_builder_patterns, summary) -> str:
     """Prompt LLM to compare template with set of builders it thinks are relevant,
     present builder combinations to model, and let it make changes if needed."""
     from vibenix.tools.search_related_packages import _extract_builders
 
-    builders = choose_builders(available_builders, summary, additional_functions)
+    builders = choose_builders(available_builders, summary)
     if not choose_builders:
         raise RuntimeError("Model failed to choose builders for comparison.")
     builders_set = set(builder.split(".")[-1].strip("'\"") for builder in builders) # has happened it reply with '"pkgs.(...)"'
@@ -184,7 +184,7 @@ def compare_template(available_builders, initial_code,
         builder_combinations = find_similar_builder_patterns(builders)
         coordinator_message(builder_combinations)
         # Let model analyse and make changes
-        compare_template_builders(view_package_contents(), builder_combinations, summary, additional_functions)
+        compare_template_builders(view_package_contents(), builder_combinations, summary)
         initial_code = get_package_contents()
         coordinator_message(f"Finished comparing builders to template.")
     else:
@@ -286,18 +286,18 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     from vibenix.tools.search_related_packages import get_builder_functions, _create_find_similar_builder_patterns
     available_builders = get_builder_functions()
     find_similar_builder_patterns = _create_find_similar_builder_patterns(available_builders)
-    additional_functions = project_functions + nixpkgs_functions
+    additional_functions = project_functions + nixpkgs_functions + [get_builder_functions, find_similar_builder_patterns]
+    get_settings_manager().initialize_additional_tools(additional_functions)
 
-    if get_settings_manager().get_build_summary_enabled():
-        build_summary = summarize_build(summary, additional_functions)
+    if get_settings_manager().get_setting_enabled("build_summary"):
+        build_summary = summarize_build(summary)
         if not build_summary:
             coordinator_error("Model failed to produce a build summary.")
             raise RuntimeError("Model failed to produce a build summary.")
         summary += f"\n\nBuild Summary:\n{build_summary}"
 
-    if get_settings_manager().get_compare_template_builders_enabled():
-        initial_code = compare_template(available_builders, initial_code, find_similar_builder_patterns, summary, additional_functions)
-    additional_functions += [get_builder_functions, find_similar_builder_patterns]
+    if get_settings_manager().get_setting_enabled("compare_template_builders"):
+        initial_code = compare_template(available_builders, initial_code, find_similar_builder_patterns, summary)
     coordinator_message(f"Initial package code:\n```nix\n{initial_code}\n```")
 
     # Step 7: Agentic loop
@@ -364,16 +364,12 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
             if is_syntax_error:
                 syntax_error_index = error_truncated.index("error: syntax error")
                 error_truncated = error_truncated[syntax_error_index:]
-            if len(candidate.result.error.error_message.split("\n")) > 256:
-                adt_functions = additional_functions + [error_pagination]
-            else:
-                adt_functions = additional_functions
+
             fix_build_error(
                 view_package_contents(),
                 error_truncated, 
                 summary, 
                 template_notes, 
-                adt_functions, 
                 has_broken_log_output,
                 is_dependency_error,
                 is_syntax_error,
@@ -426,7 +422,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
                 elif best.result.error == candidate.result.error:
                     eval_result = NixBuildErrorDiff.REGRESS
                 else:
-                    if get_settings_manager().get_progress_evaluation_enabled():
+                    if get_settings_manager().get_setting_enabled("progress_evaluation"):
                         ccl_logger.log_progress_eval_start()
                         eval_result = eval_progress(best.result, candidate.result, iteration)
                         ccl_logger.log_progress_eval_end(eval_result)
@@ -490,19 +486,20 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     ccl_logger.write_kv("raw_package", candidate.code)
     
     if candidate.result.success:
-        packaging_usage = model_prompt_manager.get_session_usage()
-        coordinator_message("Build succeeded! Refining package...")
-        candidate = refine_package(candidate, summary, additional_functions)
-        ccl_logger.write_kv("refined_package", candidate.code)
+        if get_settings_manager().get_setting_enabled("refinement"):
+            packaging_usage = model_prompt_manager.get_session_usage()
+            coordinator_message("Build succeeded! Refining package...")
+            candidate = refine_package(candidate, summary)
+            ccl_logger.write_kv("refined_package", candidate.code)
 
-        refinement_usage = model_prompt_manager.get_session_usage() - packaging_usage
-        ccl_logger.log_refinement_cost(
-            packaging_usage.calculate_cost(),
-            refinement_usage.calculate_cost(),
-            refinement_usage.prompt_tokens,
-            refinement_usage.completion_tokens,
-            refinement_usage.cache_read_tokens
-        )
+            refinement_usage = model_prompt_manager.get_session_usage() - packaging_usage
+            ccl_logger.log_refinement_cost(
+                packaging_usage.calculate_cost(),
+                refinement_usage.calculate_cost(),
+                refinement_usage.prompt_tokens,
+                refinement_usage.completion_tokens,
+                refinement_usage.cache_read_tokens
+            )
         
         # Always log success and return, regardless of refinement outcome
         ccl_logger.log_session_end(signal=None, total_cost=model_prompt_manager.get_session_cost())
@@ -519,7 +516,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     
     ccl_logger.enter_attribute("analyze_failure")
     revert_packaging_to_solution(best) # TODO do this differently later, not just best
-    details = analyze_package_failure(best.code, best.result.error.truncated(), summary, template_notes, additional_functions) # TODO best.code
+    details = analyze_package_failure(best.code, best.result.error.truncated(), summary, template_notes) # TODO best.code
     ccl_logger.write_kv("description", str(details))
     packaging_failure = classify_packaging_failure(details)
     ccl_logger.write_kv("failure_type", enum_str(packaging_failure))

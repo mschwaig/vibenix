@@ -77,7 +77,7 @@ class ModelPromptManager:
             return_type = type_hints.get('return', type(None))
 
             prompt_key = template_path.split('/')[-1].replace('.md', '')
-            if get_settings_manager().is_edit_tools_prompt(prompt_key) and get_settings_manager().get_edit_tools_enabled():
+            if get_settings_manager().is_edit_tools_prompt(prompt_key) and get_settings_manager().get_setting_enabled("edit_tools"):
                 return_type = type(None)
 
             # Determine output type and whether to use streaming
@@ -101,8 +101,13 @@ class ModelPromptManager:
                 }
                 
                 # Special handling for additional_functions parameter
-                additional_functions = template_context.pop('additional_functions', [])
-                tool_call_collector = template_context.pop('tool_call_collector', None)
+                prompt_key = template_path.split('/')[-1].replace('.md', '')
+                additional_functions = get_settings_manager().get_prompt_additional_tools(prompt_key)
+                tool_call_collector = template_context.pop('tool_call_collector', None) # TODO
+
+                # Filter out disabled additional functions TODO theres a method for this already
+                disabled_tools = get_settings_manager().get_disabled_tools()
+                additional_functions = [func for func in additional_functions if func.__name__ not in disabled_tools]
                 
                 get_logger().prompt_begin(func.__name__, template_path, 2, template_context)
                 
@@ -111,7 +116,6 @@ class ModelPromptManager:
                 rendered_prompt = prompt_loader.load(template_path, **template_context)
 
                 # Add additional snippets TODO move to prompt itself
-                prompt_key = template_path.split('/')[-1].replace('.md', '')
                 if get_settings_manager().is_edit_tools_prompt(prompt_key):
                     edit_tools_snippet = get_settings_manager().get_edit_tools_snippet(prompt_key)
                     rendered_prompt += "\n\n" + edit_tools_snippet
@@ -129,7 +133,7 @@ class ModelPromptManager:
                     # For strings, we don't need structured output
                     agent = VibenixAgent()
                 
-                functions = get_settings_manager().get_functions_for_prompt(prompt_key)
+                functions = get_settings_manager().get_prompt_tools(prompt_key)
                 # Add tools to the agent
                 all_functions = (functions or []) + additional_functions
                 for tool_func in all_functions:
@@ -160,6 +164,19 @@ class ModelPromptManager:
                     get_logger().prompt_end(2)
                     # Track usage for cost calculations
                     self.add_iteration_usage(usage)
+
+                    # If not using edit_tools, need to extract code and updated flake
+                    from vibenix.tools import EDIT_FUNCTIONS
+                    if get_settings_manager().is_edit_tools_prompt(prompt_key) and not (get_settings_manager().get_setting_enabled("edit_tools") or any(func in get_settings_manager().get_prompt_tools(prompt_key) for func in EDIT_FUNCTIONS)):
+                        from vibenix.parsing import extract_updated_code
+                        from vibenix.flake import update_flake
+                        try:
+                            code = extract_updated_code(result)
+                            update_flake(code)
+                        except ValueError as e:
+                            print("Failed to extract updated code from model response.")
+                            pass
+
                     return result
                     
                 except Exception as e:

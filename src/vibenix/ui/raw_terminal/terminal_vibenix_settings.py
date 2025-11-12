@@ -9,8 +9,7 @@ from vibenix.defaults.vibenix_settings import (
     get_settings_manager,
     load_settings,
     DEFAULT_VIBENIX_SETTINGS,
-    DEFAULT_PROMPT_TOOLS,
-    settings_to_json_format,
+    ADDITIONAL_TOOLS_NAMES,
     settings_from_json_format
 )
 from vibenix.tools import ALL_FUNCTIONS, SEARCH_FUNCTIONS, EDIT_FUNCTIONS
@@ -67,7 +66,7 @@ def show_tool_list(tools: List, disabled_tools: Set[str], title: str):
 
 def toggle_tools_menu() -> None:
     """Interactive menu for toggling individual tools on/off."""
-    all_tools = ALL_FUNCTIONS.copy()
+    all_tools = ALL_FUNCTIONS.copy() + ADDITIONAL_TOOLS_NAMES.copy()
     
     while True:
         # Get currently disabled tools from settings (it's a list of tool names)
@@ -103,9 +102,9 @@ def toggle_tools_menu() -> None:
             idx = int(choice) - 1
             if 0 <= idx < len(all_tools):
                 tool = all_tools[idx]
-                tool_name = tool.__name__
+                tool_name = tool.__name__ if callable(tool) else tool
                 
-                get_settings_manager().toggle_disabled_tools(tool_name)
+                get_settings_manager().toggle_global_tools(tool_name)
             else:
                 print(f"\n❌ Please enter a number between 1 and {len(all_tools)}")
         except ValueError:
@@ -244,11 +243,10 @@ def configure_general_behaviour_menu() -> None:
         print("⚙️  GENERAL BEHAVIOUR SETTINGS")
         print("=" * 60)
 
-        behaviour_settings = get_settings_manager().get_all_behaviour_settings()
-        behaviour_keys = [setting.removesuffix("_enabled") for setting in behaviour_settings]
+        behaviour_keys = get_settings_manager().list_all_behaviour_settings()
         for i in range(1, len(behaviour_keys)+1):
             setting_name = behaviour_keys[i-1]
-            enabled = get_settings_manager().__getattr__(f"get_{setting_name}_enabled")()
+            enabled = get_settings_manager().get_setting_enabled(setting_name)
             status = "🟢 ENABLED" if enabled else "🔴 DISABLED"
             print(f"{i}. {setting_name.replace("_", " ").capitalize():30} {status}")
         
@@ -260,15 +258,15 @@ def configure_general_behaviour_menu() -> None:
         if choice == 'q':
             return
         
-        if choice.isdigit() and 1 <= int(choice) <= len(behaviour_settings):
+        if choice.isdigit() and 1 <= int(choice) <= len(behaviour_keys):
             idx = int(choice) - 1
             setting_name = behaviour_keys[idx]
-            enabled = get_settings_manager().__getattr__(f"get_{setting_name}_enabled")()
+            enabled = get_settings_manager().get_setting_enabled(setting_name)
             new_value = not enabled
             print(f"Setting '{setting_name}' from {enabled} to {new_value}")
-            get_settings_manager().__getattr__(f"set_{setting_name}_enabled")(new_value)
+            get_settings_manager().set_setting_enabled(setting_name, new_value)
             status = "🟢 ENABLED" if new_value else "🔴 DISABLED"
-            print(f"\n✅ {setting_name.capitalize()} is now {status}")
+            print(f"\n✅ {setting_name.replace("_", " ").capitalize():30} is now {status}")
         else:
             print("\n❌ Please make a choice between 'q' and 1-4")
 
@@ -313,9 +311,8 @@ def view_current_settings():
     
     print("\n⚙️  General behaviour settings:")
     # Show general settings
-    for setting_name in get_settings_manager().get_all_behaviour_settings():
-        setting_name = setting_name.removesuffix("_enabled")
-        enabled = get_settings_manager().__getattr__(f"get_{setting_name}_enabled")()
+    for setting_name in get_settings_manager().list_all_behaviour_settings():
+        enabled = get_settings_manager().get_setting_enabled(setting_name)
         print(f"   {setting_name.replace("_", " ").capitalize():30} - {'🟢 Enabled' if enabled else '🔴 Disabled'}")
     
     input("\nPress Enter to continue...")

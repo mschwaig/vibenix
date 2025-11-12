@@ -65,7 +65,6 @@ def get_feedback(
     project_page: Optional[str] = None,
     iteration: int = 0,
     max_iterations: int = 0,
-    additional_functions: List = []
 ) -> str:
     """Get feedback on a successfully built package."""
     ...
@@ -78,7 +77,6 @@ def refine_code(
     feedback: str,
     project_page: Optional[str] = None,
     template_notes: Optional[str] = None,
-    additional_functions: List = []
 ) -> str:
     """Refine a nix package based on feedback."""
     ...
@@ -91,7 +89,6 @@ def fix_build_error(
     error: str,
     project_page: Optional[str] = None,
     template_notes: Optional[str] = None,
-    additional_functions: List = [],
     is_broken_log_output: bool = False,
     is_dependency_build_error: bool = False,
     is_syntax_error: bool = False,
@@ -159,7 +156,6 @@ def analyze_package_failure(
     error: str,
     project_page: Optional[str] = None,
     template_notes: Optional[str] = None,
-    additional_functions: List = []
 ) -> str:
     """Analyze why packaging failed."""
     ...
@@ -167,8 +163,7 @@ def analyze_package_failure(
 
 @ask_model_prompt('summarize_build.md')
 def summarize_build(
-    summary: Optional[str] = None,
-    additional_functions: List = []) -> str:
+    summary: Optional[str] = None) -> str:
     """Summarize the build process and identify relations between the components."""
     ...
 
@@ -176,8 +171,7 @@ def summarize_build(
 @ask_model_prompt('choose_builders.md')
 def choose_builders(
     available_builders: List[str],
-    project_page: Optional[str] = None,
-    additional_functions: List = []) -> List[str]:
+    project_page: Optional[str] = None) -> List[str]:
     """Identify the Nix builder to use for packaging the project."""
     ...
 
@@ -187,8 +181,7 @@ def choose_builders(
 def compare_template_builders(
     initial_code: str,
     builder_combinations_info: str,
-    project_page: Optional[str] = None,
-    additional_functions: List = []) -> str:
+    project_page: Optional[str] = None) -> str:
     """Compare the template builders with ones from choose_builders."""
     ...
 

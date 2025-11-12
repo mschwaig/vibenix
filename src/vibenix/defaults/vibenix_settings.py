@@ -16,12 +16,26 @@ from vibenix.tools import (
     error_pagination,
 )
 
+from vibenix.tools.file_tools import create_source_function_calls
 
+from tempfile import mkdtemp
+
+tempdir = mkdtemp()
+PROJECT_TOOLS = create_source_function_calls(tempdir, "project_")
+NIXPKGS_TOOLS = create_source_function_calls(tempdir, "nixpkgs_")
+GET_BUILDER_FUNCTIONS = ['get_builder_functions']
+FIND_SIMILAR_BUILDER_PATTERNS = ['find_similar_builder_patterns']
+
+ADDITIONAL_TOOLS = GET_BUILDER_FUNCTIONS + FIND_SIMILAR_BUILDER_PATTERNS + PROJECT_TOOLS + NIXPKGS_TOOLS
+def get_names(funcs: List[Union[Callable, str]]) -> List[str]:
+    return [func.__name__ if callable(func) else func for func in funcs]
+
+
+# TODO ADD EVALUATE PROGRESS
 # Default mapping of prompts to their tools
 DEFAULT_PROMPT_TOOLS: Dict[str, List[Callable]] = {
     'pick_template': [],
     'summarize_github': [],
-    'evaluate_code': [],
     'get_feedback': SEARCH_FUNCTIONS,
     'refine_code': ALL_FUNCTIONS,
     'fix_build_error': ALL_FUNCTIONS,
@@ -32,31 +46,45 @@ DEFAULT_PROMPT_TOOLS: Dict[str, List[Callable]] = {
     'choose_builders': [],
     'compare_template_builders': [search_nix_functions, search_nixpkgs_manual_documentation]+EDIT_FUNCTIONS,
 }
-
+DEFAULT_PROMPT_ADD_TOOLS: Dict[str, List[str]] = {
+    'pick_template': [],
+    'summarize_github': [],
+    'get_feedback': get_names(ADDITIONAL_TOOLS),
+    'refine_code': [],
+    'fix_build_error': get_names(ADDITIONAL_TOOLS),
+    'fix_hash_mismatch': [],
+    'classify_packaging_failure': [],
+    'analyze_package_failure': get_names(ADDITIONAL_TOOLS),
+    'summarize_build': get_names(PROJECT_TOOLS),
+    'choose_builders': get_names(PROJECT_TOOLS + NIXPKGS_TOOLS),
+    'compare_template_builders': get_names(PROJECT_TOOLS + NIXPKGS_TOOLS + GET_BUILDER_FUNCTIONS),
+}
 
 DEFAULT_VIBENIX_SETTINGS = {
     # Individual tool toggles (disable specific tools globally)
-    "tools": [
-        # Empty: All tools enabled by default
-    ],
+    # Empty: All tools enabled by default 
+    "tools": [],
     
     # Per-prompt tool configuration
     # Values are lists of function objects
     "prompt_tools": DEFAULT_PROMPT_TOOLS.copy(),
-
-    # Toggle additional tools on or off TODO 1
+    "prompt_additional_tools": DEFAULT_PROMPT_ADD_TOOLS.copy(), # TODO 1
     
     # General behavior, misc
     "behaviour": {
         # Enable or disable progress_evaluation
-        "progress_evaluation_enabled": True,
-        "build_summary_enabled": True,
-        "compare_template_builders_enabled": True,
+        "progress_evaluation": True,
+        "build_summary": True,
+        "compare_template_builders": True,
+        "refinement": {
+            "enabled": True,
+            "iterations": 3,
+        },
         # Enable or disable edit tools
         "edit_tools": {
-            "enabled": True, # DONE but to improve TODO 2
+            "enabled": True,
             # Snippets to add to prompts whether edit tools are enabled or not
-            "snippets": [ # DONE but to improve TODO 3
+            "snippets": [ # improve TODO 3
                 "To perform each change to the code, use the text editor tools: [<TOOLS>].",
                 "Your response should contain the full updated packaging code, wrapped like so:\n```nix\n...\n```."
             ]
@@ -79,9 +107,16 @@ class VibenixSettingsManager:
         tool_map = {}
         for func in ALL_FUNCTIONS:
             tool_map[func.__name__] = func
+        for func in ADDITIONAL_TOOLS:
+            tool_map[func] = None
         return tool_map
+
+    def initialize_additional_tools(self, tools: List[Callable]):
+        """Initialize the additional tools in the tool name map."""
+        for func in tools:
+            self._tool_name_map[func.__name__] = func
     
-    def get_edit_tools_snippet(self) -> str:
+    def get_edit_tools_snippet(self, prompt: str) -> str:
         """Get the snippet to use in the prompt template to match whether edit tools are used or not."""
         edit_tools_setting = self.settings.get("behaviour", {}).get("edit_tools", {})
         snippets = edit_tools_setting.get("snippets", [])
@@ -89,14 +124,15 @@ class VibenixSettingsManager:
         if len(snippets) < 2:
             raise ValueError("Edit tools snippets must contain at least two entries.")
 
-        if not self.get_edit_tools_enabled():
+        if not self.get_setting_enabled("edit_tools"):
             return snippets[1]
         else:
-            enabled_edit_tools = self._filter_enabled_tools(EDIT_FUNCTIONS)
+            tools = self.get_prompt_tools(prompt)
+            enabled_edit_tools = self._filter_enabled_tools(tools)
             return snippets[0].replace("<TOOLS>", ", ".join([f.__name__ for f in enabled_edit_tools]))    
 
     def is_edit_tools_prompt(self, prompt_name: str) -> bool:
-        """Check if a prompt is an edit tools prompt.
+        """Check if a prompt is an edit tools prompt (has code edit tools).
         
         Args:
             prompt_name: The name of the prompt
@@ -104,8 +140,7 @@ class VibenixSettingsManager:
         Returns:
             True if the prompt uses edit tools, False otherwise
         """
-        prompt_tools = self.settings.get("prompt_tools", {}).get(prompt_name, [])
-        prompt_tools = self._filter_enabled_tools(prompt_tools)
+        prompt_tools = DEFAULT_PROMPT_TOOLS.get(prompt_name, [])
 
         if any(tool in EDIT_FUNCTIONS for tool in prompt_tools):
             return True
@@ -113,97 +148,89 @@ class VibenixSettingsManager:
 
 
     # General behaviour settings ====
-    def _get_behaviour_setting_enabled(self, setting_name: str) -> bool:
-        """Get the enabled status of a behaviour setting.
-           This is a helper method used by dynamically generated get_*_enabled methods.
+    def get_setting_enabled(self, setting_name: str) -> bool:
+        setting = self.get_setting_value(setting_name)
+        if isinstance(setting, bool):
+            return setting
+        elif isinstance(setting, dict):
+            enabled = setting.get("enabled")
+            if enabled is not None:
+                return enabled
+            else:
+                raise ValueError(f"Wrong usage of get_setting_enabled for '{setting_name}'.")
+        raise ValueError(f"Setting '{setting_name}' is neither bool nor dict.")
+
+    def set_setting_enabled(self, setting_name: str, enabled: bool):
+        behaviour_settings = self.settings.get("behaviour", {})
+        setting = behaviour_settings.get(setting_name)
+
+        if isinstance(setting, bool):
+            self.set_setting_value(setting_name, enabled)
+        elif isinstance(setting, dict):
+            if "enabled" in setting:
+                setting["enabled"] = enabled
+            else:
+                raise ValueError(f"Wrong usage of set_setting_enabled for '{setting_name}'.")
+
+    def get_setting_value(self, value_path: str) -> Any:
+        """Get a specific value from a behaviour setting that is a dict.
+        
+        Args:
+            value_path: Dot-separated path to the value (e.g., "refinement.iterations")
+            
+        Returns:
+            The value associated with the key in the behaviour setting dict
         """
         behaviour_settings = self.settings.get("behaviour", {})
-        enabled = behaviour_settings.get(setting_name)
-        
-        # If the value is a dict, look for an "enabled" key inside it
-        if isinstance(enabled, dict):
-            enabled = enabled.get("enabled")
-        
-        # If no value found, check with "_enabled" suffix
-        if enabled is None:
-            enabled = behaviour_settings.get(f"{setting_name}_enabled")
-        
-        if enabled is None:
-            raise ValueError(f"Behaviour setting '{setting_name}' not found.")
-        return enabled
+        parts = value_path.split(".")
+        setting_name = parts[0]
+        setting = behaviour_settings.get(setting_name)
 
-    def get_all_behaviour_settings(self) -> Dict[str, Any]:
+        key = None
+        while len(parts) > 1:
+            if isinstance(setting, dict):
+                key = parts[1]
+                setting = setting.get(key)
+                parts = parts[1:]
+            else:
+                raise ValueError(f"Behaviour setting '{setting_name}' is not a dict.")
+
+        return setting
+
+    def list_all_behaviour_settings(self) -> List[str]:
         """Get the names of all behaviour settings."""
         return self.settings.get("behaviour", {}).keys()
 
-    def _set_behaviour_setting_enabled(self, setting_name: str, value: bool):
+    def set_setting_value(self, value_path: str, value: bool):
         """Set the enabled status of a behaviour setting.
            This is a helper method used by dynamically generated set_*_enabled methods.
         """
         behaviour_settings = self.settings.get("behaviour", {})
         
-        # First, try to find the setting with the given name
-        if setting_name in behaviour_settings:
-            # Found it directly (e.g., "edit_tools" as a dict)
-            if isinstance(behaviour_settings[setting_name], dict):
-                behaviour_settings[setting_name]["enabled"] = value
-            else:
-                # It's a boolean directly
-                behaviour_settings[setting_name] = value
-        elif f"{setting_name}_enabled" in behaviour_settings:
-            # Try with "_enabled" suffix (e.g., "progress_evaluation_enabled")
-            behaviour_settings[f"{setting_name}_enabled"] = value
-        else:
-            raise ValueError(f"Behaviour setting '{setting_name}' not found.")
-        
-        # No need to reassign, we modified the dict in place
-        # self.settings["behaviour"] = behaviour_settings
+        parts = value_path.split(".")
+        setting_name = parts[0]
+        setting = behaviour_settings.get(setting_name)
 
-    def __getattr__(self, name: str):
-        """Dynamically handle <behaviour_setting> getter and setters method calls.
-        
-        This provides fallback support for any behaviour settings not explicitly defined.
-        For better IDE support, commonly used settings should have explicit methods above.
-        """
-
-        # Check if this is a getter or setter
-        if (name.startswith("get_") or name.startswith("set_")) and name.endswith("_enabled"):
-            # Extract the setting name first (before creating closures that reference it)
-            if name.startswith("get_"):
-                setting_name = name[4:-8]  # Remove "get_" (4 chars) and "_enabled" (8 chars)
-                
-                def _get_behaviour_enabled():
-                    return self._get_behaviour_setting_enabled(setting_name)
-                
-                return _get_behaviour_enabled
+        if isinstance(setting, bool):
+            if len(parts) == 1:
+                self.settings["behaviour"][setting_name] = value
+                return
             
-            elif name.startswith("set_"):
-                setting_name = name[4:-8]  # Remove "set_" (4 chars) and "_enabled" (8 chars)
-                
-                def _set_behaviour_enabled(value: bool):
-                    self._set_behaviour_setting_enabled(setting_name, value)
-                
-                return _set_behaviour_enabled
-        
-        # If not a get_*_enabled or set_*_enabled pattern, raise AttributeError
-        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+        key = None
+        while len(parts) > 1:
+            if isinstance(setting, dict):
+                key = parts[1]
+                setting = setting.get(key)
+                parts = parts[1:]
+            else:
+                raise ValueError(f"Behaviour setting '{setting_name}' is not a dict.")
+        if key is None:
+            raise ValueError(f"Error setting value for '{value_path}'.")
+        if isinstance(setting, dict):
+            setting[key] = value
+        else:
+            raise ValueError(f"Behaviour setting '{setting_name}' is not a dict.")
 
-    # Explicitly define methods anyway for IDE support and type checking
-    def get_progress_evaluation_enabled(self) -> bool:
-        """Check if progress evaluation is enabled."""
-        return self._get_behaviour_setting_enabled("progress_evaluation")
-    
-    def get_build_summary_enabled(self) -> bool:
-        """Check if build summary is enabled."""
-        return self._get_behaviour_setting_enabled("build_summary")
-    
-    def get_compare_template_builders_enabled(self) -> bool:
-        """Check if compare_template_builders is enabled."""
-        return self._get_behaviour_setting_enabled("compare_template_builders")
-    
-    def get_edit_tools_enabled(self) -> bool:
-        """Check if edit tools are enabled."""
-        return self._get_behaviour_setting_enabled("edit_tools")
 
     # Global tool management
     def _filter_enabled_tools(self, tools: List[Callable]) -> List[Callable]:
@@ -237,7 +264,18 @@ class VibenixSettingsManager:
                 enabled.append(tool_func)
         
         return enabled
-    
+
+    def get_additional_tool(self, name: str) -> Optional[Callable]:
+        """Get an additional tool function by name.
+        
+        Args:
+            name: Name of the tool function
+            
+        Returns:
+            The tool function if found, None otherwise
+        """
+        return self._tool_name_map.get(name)
+
     def get_disabled_tools(self) -> List[str]:
         """Get the list of globally disabled tool names.
         
@@ -246,7 +284,7 @@ class VibenixSettingsManager:
         """
         return self.settings.get("tools", [])    
 
-    def toggle_disabled_tools(self, tool: Union[Callable, str]):
+    def toggle_global_tools(self, tool: Union[Callable, str]):
         """Disable a specific tool globally.
         
         Args:
@@ -274,6 +312,7 @@ class VibenixSettingsManager:
         self.settings["tools"] = disabled_tool_names
     
 
+    # Prompt tools
     def list_all_prompts(self) -> List[str]:
         """Get a list of all configured prompt names.
         
@@ -320,6 +359,31 @@ class VibenixSettingsManager:
         
         # Filter based on enabled/disabled settings
         return self._filter_enabled_tools(tools)
+
+    def get_prompt_additional_tools(self, prompt_name: str) -> List[Callable]:
+        """Get the list of additional tool functions for a specific prompt.
+        
+        Args:
+            prompt_name: The name of the prompt
+        Returns:
+            List of additional tool functions for this prompt
+        """
+        prompt_tools_config = self.settings.get("prompt_additional_tools", {})
+        tool_spec = prompt_tools_config.get(prompt_name, [])
+        
+        # Normalize to list if needed
+        if isinstance(tool_spec, list):
+            tools = tool_spec
+        else:
+            # Single function
+            tools = [tool_spec] if tool_spec else []
+        
+        # Convert string names to function objects if needed
+        if tools and isinstance(tools[0], str):
+            tools = [self._tool_name_map.get(name) for name in tools if name in self._tool_name_map]
+        
+        return tools
+
     
     def save_settings(self, filepath: str):
         """Save current settings to a JSON file.

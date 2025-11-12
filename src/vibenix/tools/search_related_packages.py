@@ -282,7 +282,7 @@ def _find_qualified_path(function_name: str, helper_map: dict, langs: List[str])
     raise ValueError(f"Could not find qualified path for function: '{function_name}' ([{langs[0]}, {langs[1]}, ...])")
 
 
-def _create_find_similar_builder_patterns(cache: List[str]):
+def _create_find_similar_builder_patterns(cache: List[str] = []):
     """Factory function that returns find_similar_builder_patterns with cache captured in closure."""
     from vibenix.flake import get_package_contents
     @log_function_call("find_similar_builder_patterns")
