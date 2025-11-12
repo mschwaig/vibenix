@@ -360,13 +360,41 @@ class VibenixSettingsManager:
         # Filter based on enabled/disabled settings
         return self._filter_enabled_tools(tools)
 
-    def get_prompt_additional_tools(self, prompt_name: str) -> List[Callable]:
+    def set_prompt_additional_tools(self, prompt_name: str, tool_spec: List[str]):
+        """Set the list of additional tool names for a specific prompt.
+        
+        Args:
+            prompt_name: The name of the prompt
+            tool_spec: List of tool names to set for this prompt
+        """
+        if "prompt_additional_tools" not in self.settings:
+            self.settings["prompt_additional_tools"] = {}
+        
+        self.settings["prompt_additional_tools"][prompt_name] = tool_spec
+
+    def get_prompt_additional_tools(self, prompt_name: str) -> List[str]:
         """Get the list of additional tool functions for a specific prompt.
         
         Args:
             prompt_name: The name of the prompt
         Returns:
             List of additional tool functions for this prompt
+        """
+        additional_tools_names = self.get_prompt_additional_tools_names(prompt_name)
+        tools = [self.get_additional_tool(name) for name in additional_tools_names]
+
+        if any(t is None for t in tools):
+            raise ValueError(f"One or more prompt tools have not been initialized in runtime.")
+        
+        return tools
+
+    def get_prompt_additional_tools_names(self, prompt_name: str) -> List[str]:
+        """Get the list of additional tool names for a specific prompt.
+        
+        Args:
+            prompt_name: The name of the prompt
+        Returns:
+            List of additional tool names for this prompt
         """
         prompt_tools_config = self.settings.get("prompt_additional_tools", {})
         tool_spec = prompt_tools_config.get(prompt_name, [])
@@ -378,11 +406,9 @@ class VibenixSettingsManager:
             # Single function
             tools = [tool_spec] if tool_spec else []
         
-        # Convert string names to function objects if needed
-        if tools and isinstance(tools[0], str):
-            tools = [self._tool_name_map.get(name) for name in tools if name in self._tool_name_map]
-        if any(t is None for t in tools):
-            raise ValueError(f"One or more prompt tools have not been initialized in runtime.")
+        # Convert function objects to names if needed
+        if tools and callable(tools[0]):
+            tools = [tool.__name__ for tool in tools]
         
         return tools
 

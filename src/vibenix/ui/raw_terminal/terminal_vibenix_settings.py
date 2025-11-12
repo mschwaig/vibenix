@@ -148,6 +148,7 @@ def configure_prompt_tools_menu() -> None:
 def configure_single_prompt_tools(prompt_name: str) -> None:
     """Configure tools for a single prompt."""
     selected_tools = set()
+    selected_additional_tools = set()
     
     current_tools = get_settings_manager().get_prompt_tools(prompt_name)
     # Convert current tools to names
@@ -157,7 +158,14 @@ def configure_single_prompt_tools(prompt_name: str) -> None:
         else:
             selected_tools.add(tool)
     
+    # Get current additional tools
+    current_additional = get_settings_manager().get_prompt_additional_tools_names(prompt_name)
+    for tool in current_additional:
+        selected_additional_tools.add(tool)
+    
     all_tools = ALL_FUNCTIONS.copy()
+    all_additional = ADDITIONAL_TOOLS.copy()
+    print("GGHGHH")
     
     while True:
         print("\n" + "=" * 60)
@@ -170,18 +178,26 @@ def configure_single_prompt_tools(prompt_name: str) -> None:
         else:
             print("\n⚠️  No tools selected (prompt will have no tools)")
         
-        print(f"\nAvailable Tools:")
+        if selected_additional_tools:
+            print(f"✅ Additional tools ({len(selected_additional_tools)}): {', '.join(sorted(selected_additional_tools))}")
+        
+        print(f"\n📦 Available Tools:")
         for i, tool in enumerate(all_tools, 1):
             tool_name = tool.__name__
             status = "✅ SELECTED" if tool_name in selected_tools else "  "
             print(f"{i:2}. {status:12} {tool_name}")
         
+        for i, tool_name in enumerate(all_additional, 1):
+            status = "✅ SELECTED" if tool_name in selected_additional_tools else "  "
+            print(f"{i+len(all_tools):2}. {status:12} {tool_name}")
+        
         print("\n" + "-" * 60)
         print("Commands:")
         print("  [number]      - Toggle tool selection")
+        print("  'additional'  - Toggle all additional selection")
         print("  'search'      - Select all SEARCH_FUNCTIONS")
         print("  'edit'        - Select all EDIT_FUNCTIONS")
-        print("  'all'         - Select all tools")
+        print("  'all'         - Select all SEARCH+EDIT tools")
         print("  'none'        - Deselect all tools")
         print("  'q'           - Finish and save")
         
@@ -195,6 +211,9 @@ def configure_single_prompt_tools(prompt_name: str) -> None:
                 if tool_name in tool_map:
                     result_tools.append(tool_map[tool_name])
             get_settings_manager().set_prompt_tools(prompt_name, result_tools)
+            
+            # Save additional tools as list of strings
+            get_settings_manager().set_prompt_additional_tools(prompt_name, list(selected_additional_tools))
             return
         
         elif choice == 'search':
@@ -211,6 +230,11 @@ def configure_single_prompt_tools(prompt_name: str) -> None:
             for tool in all_tools:
                 selected_tools.add(tool.__name__)
             print("\n✅ Selected all tools")
+        
+        elif choice == 'additional':
+            for tool_name in all_additional:
+                selected_additional_tools.add(tool_name)
+            print("\n✅ Selected all additional tools")
         
         elif choice == 'none':
             selected_tools.clear()
@@ -229,8 +253,18 @@ def configure_single_prompt_tools(prompt_name: str) -> None:
                     else:
                         selected_tools.add(tool_name)
                         print(f"\n✅ Selected: {tool_name}")
+                elif 0 <= idx < len(all_tools) + len(all_additional):
+                    # Additional tool
+                    tool_name = all_additional[idx - len(all_tools)]
+                    
+                    if tool_name in selected_additional_tools:
+                        selected_additional_tools.remove(tool_name)
+                        print(f"\n❌ Deselected: {tool_name}")
+                    else:
+                        selected_additional_tools.add(tool_name)
+                        print(f"\n✅ Selected: {tool_name}")
                 else:
-                    print(f"\n❌ Please enter a number between 1 and {len(all_tools)}")
+                    print(f"\n❌ Please enter a number between 1 and {len(all_tools) + len(all_additional)}")
             except ValueError:
                 print("\n❌ Invalid input. Enter a number, command, or 'q'")
 
