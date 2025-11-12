@@ -28,7 +28,7 @@ def refine_package(curr: Solution, project_page: str, additional_functions: list
         # TODO BUILD LOG IS NOT BEING PASSED!
         code_lines = view_package_contents()
 
-        feedback = get_feedback(code_lines, project_page, iteration+1, max_iterations, additional_functions)
+        feedback = get_feedback(code_lines, project_page, iteration+1, max_iterations)
         coordinator_message(f"Refining package (iteration {iteration+1}/{max_iterations})...")
         coordinator_message(f"Received feedback: {feedback}")
         ccl_logger.write_kv("feedback", str(feedback))

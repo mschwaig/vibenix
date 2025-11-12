@@ -9,7 +9,7 @@ from vibenix.defaults.vibenix_settings import (
     get_settings_manager,
     load_settings,
     DEFAULT_VIBENIX_SETTINGS,
-    ADDITIONAL_TOOLS_NAMES,
+    ADDITIONAL_TOOLS,
     settings_from_json_format
 )
 from vibenix.tools import ALL_FUNCTIONS, SEARCH_FUNCTIONS, EDIT_FUNCTIONS
@@ -66,7 +66,7 @@ def show_tool_list(tools: List, disabled_tools: Set[str], title: str):
 
 def toggle_tools_menu() -> None:
     """Interactive menu for toggling individual tools on/off."""
-    all_tools = ALL_FUNCTIONS.copy() + ADDITIONAL_TOOLS_NAMES.copy()
+    all_tools = ALL_FUNCTIONS.copy() + ADDITIONAL_TOOLS.copy()
     
     while True:
         # Get currently disabled tools from settings (it's a list of tool names)
@@ -375,7 +375,7 @@ def show_vibenix_settings_terminal() -> bool:
             print("\n✅ Settings saved and applied!")
             return True
         
-        elif choice == '7':
+        elif choice == '7' or choice == 'q':
             # Exit without saving
             confirm = input("\n⚠️  Exit without saving changes? (y/N): ").strip().lower()
             if confirm == 'y':

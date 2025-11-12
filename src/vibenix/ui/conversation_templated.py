@@ -40,7 +40,8 @@ class ModelPromptManager:
     def get_session_usage(self) -> Usage:
         """Get the accumulated usage for this session."""
         self.reset_iteration_usage()
-        return self._session_usage
+        from copy import deepcopy
+        return deepcopy(self._session_usage)
 
     def get_iteration_usage(self) -> Usage:
         """Get usage for the last model interactions."""
@@ -102,7 +103,10 @@ class ModelPromptManager:
                 
                 # Special handling for additional_functions parameter
                 prompt_key = template_path.split('/')[-1].replace('.md', '')
-                additional_functions = get_settings_manager().get_prompt_additional_tools(prompt_key)
+                try:
+                    additional_functions = get_settings_manager().get_prompt_additional_tools(prompt_key)
+                except Exception as e:
+                    raise ValueError(f"Failed to get additional functions for prompt '{prompt_key}', error: {e}")
                 tool_call_collector = template_context.pop('tool_call_collector', None) # TODO
 
                 # Filter out disabled additional functions TODO theres a method for this already

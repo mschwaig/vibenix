@@ -20,15 +20,15 @@ from vibenix.tools.file_tools import create_source_function_calls
 
 from tempfile import mkdtemp
 
+def get_names(funcs: List[Union[Callable, str]]) -> List[str]:
+    return [func.__name__ if callable(func) else func for func in funcs]
 tempdir = mkdtemp()
-PROJECT_TOOLS = create_source_function_calls(tempdir, "project_")
-NIXPKGS_TOOLS = create_source_function_calls(tempdir, "nixpkgs_")
+PROJECT_TOOLS = get_names(create_source_function_calls(tempdir, "project_"))
+NIXPKGS_TOOLS = get_names(create_source_function_calls(tempdir, "nixpkgs_"))
 GET_BUILDER_FUNCTIONS = ['get_builder_functions']
 FIND_SIMILAR_BUILDER_PATTERNS = ['find_similar_builder_patterns']
 
 ADDITIONAL_TOOLS = GET_BUILDER_FUNCTIONS + FIND_SIMILAR_BUILDER_PATTERNS + PROJECT_TOOLS + NIXPKGS_TOOLS
-def get_names(funcs: List[Union[Callable, str]]) -> List[str]:
-    return [func.__name__ if callable(func) else func for func in funcs]
 
 
 # TODO ADD EVALUATE PROGRESS
@@ -199,7 +199,7 @@ class VibenixSettingsManager:
 
     def list_all_behaviour_settings(self) -> List[str]:
         """Get the names of all behaviour settings."""
-        return self.settings.get("behaviour", {}).keys()
+        return list(self.settings.get("behaviour", {}).keys())
 
     def set_setting_value(self, value_path: str, value: bool):
         """Set the enabled status of a behaviour setting.
@@ -381,6 +381,8 @@ class VibenixSettingsManager:
         # Convert string names to function objects if needed
         if tools and isinstance(tools[0], str):
             tools = [self._tool_name_map.get(name) for name in tools if name in self._tool_name_map]
+        if any(t is None for t in tools):
+            raise ValueError(f"One or more prompt tools have not been initialized in runtime.")
         
         return tools
 

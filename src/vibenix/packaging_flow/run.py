@@ -175,8 +175,6 @@ def compare_template(available_builders, initial_code,
     if not choose_builders:
         raise RuntimeError("Model failed to choose builders for comparison.")
     builders_set = set(builder.split(".")[-1].strip("'\"") for builder in builders) # has happened it reply with '"pkgs.(...)"'
-    print(f"Initial code: ```nix\n{initial_code}\n```")
-    print(f"Available builders: {available_builders}")
     template_builders = _extract_builders(initial_code, available_builders) or []
     template_builders = set(builder.split(".")[-1] for builder in template_builders)
     if len(builders) > 0 and builders_set != template_builders:
