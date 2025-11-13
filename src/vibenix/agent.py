@@ -5,7 +5,7 @@ This module provides the core agent functionality using pydantic-ai.
 
 import asyncio
 from typing import Callable, Any
-from pydantic_ai import Agent, UnexpectedModelBehavior, capture_run_messages
+from pydantic_ai import Agent, UnexpectedModelBehavior, capture_run_messages, RunContext
 from pydantic_ai.usage import UsageLimits
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type, RetryError
 from pydantic_ai.exceptions import UsageLimitExceeded, UnexpectedModelBehavior
@@ -15,6 +15,8 @@ from vibenix.usage_utils import extract_usage_tokens
 from vibenix.ccl_log import get_logger
 from vibenix.model_config import DEFAULT_USAGE_LIMITS
 import logging
+import inspect
+from functools import wraps
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +26,7 @@ _global_failed_messages = None
 
 class VibenixAgent:
     """Main agent for vibenix using pydantic-ai."""
-    def __init__(self, instructions: str = None, output_type: type = None):
+    def __init__(self, instructions: str = None, output_type: type = None, ):
         """Initialize the agent with optional custom instructions and output type."""
         self.model = get_model()
         default_instructions = "You are a software packaging expert who can build any project using the Nix programming language."
@@ -33,23 +35,109 @@ class VibenixAgent:
         if output_type is not None:
             self.agent = Agent(
                 model=self.model,
-                instructions=instructions or default_instructions,
+                #instructions=instructions or default_instructions,
                 output_type=output_type,
             )
         else:
             self.agent = Agent(
                 model=self.model,
-                instructions=instructions or default_instructions,
+                #instructions=instructions or default_instructions,
             )
         
         self._tools = []
         self._output_type = output_type  # Store output type for later checks
     
-    # Could use https://ai.pydantic.dev/durable_execution/prefect/#durable-agent for caching
+    # Tool wrapper that receives run context and tracks usage for each tool call
     def add_tool(self, func: Callable) -> None:
-        # Use tool_plain since our tools don't need RunContext
-        # All tools should be sequential to avoid race conditions in file operations
-        self.agent.tool_plain(func, sequential=True)
+        """Add a tool to the agent with usage tracking.
+        
+        Args:
+            func: The tool function to add. Can accept RunContext as first parameter.
+        """
+        # Check if the function already accepts RunContext as first parameter
+        try:
+            sig = inspect.signature(func)
+            params = list(sig.parameters.values())
+            
+            # If function already has ctx: RunContext parameter, use it directly
+            if params and params[0].name == 'ctx':
+                # Function already has RunContext, just register it
+                self.agent.tool(func, sequential=True)
+                self._tools.append(func)
+                return
+        except (ValueError, TypeError):
+            # If we can't inspect the signature, fall through to wrapping
+            pass
+        
+        # Create a wrapper that preserves the original signature
+        # This is necessary so pydantic-ai can generate proper JSON schema
+        sig = inspect.signature(func)
+        
+        # Create new parameters list with ctx as first parameter
+        new_params = [
+            inspect.Parameter('ctx', inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=RunContext[None])
+        ]
+        new_params.extend(sig.parameters.values())
+        
+        # Create new signature
+        new_sig = sig.replace(parameters=new_params)
+        
+        # Create wrapper function with the new signature
+        def create_wrapper(original_func):
+            def wrapper(ctx: RunContext[None], *args, **kwargs):
+                """Wrapper that tracks tool usage via RunContext."""
+                from vibenix.ui.conversation_templated import get_model_prompt_manager
+
+                # Get usage at this step
+                usage = ctx.usage
+
+                previous_tool = get_model_prompt_manager().get_previous_tool_name()
+                if previous_tool and usage.input_tokens > 0:
+                    # the result of the previous tool are input tokens on current tool call
+                    # to obtain it is: input = curr_input - prev_total_in - prev_out
+                    previous_total_in = get_model_prompt_manager().get_previous_total_in()
+                    previous_tool_in = usage.input_tokens - previous_total_in - get_model_prompt_manager().get_previous_step_usage().completion_tokens
+                    get_model_prompt_manager().add_session_tool_call_usage(previous_tool, prompt=previous_tool_in)
+
+                    print(f"\n🔧 Previous tool: {previous_tool}")
+                    print(f"   📊 Previous tool call in: {previous_tool_in} in tokens (tool result as input)")
+                
+                # Get previous step usage to calculate the delta
+                prev_total_usage = get_model_prompt_manager().get_previous_step_total_usage()
+                
+                # Calculate curr_out: output tokens used to make this function call
+                # This is the delta in output tokens from the previous step
+                tool_out = usage.output_tokens - prev_total_usage.completion_tokens
+                
+                # Call the original function and get the result
+                result = original_func(*args, **kwargs)
+                
+                print(f"\n🔧 Tool called: {original_func.__name__}")
+                print(f"   📊 Total usage: {usage.input_tokens} in, {usage.output_tokens} out")
+                print(f"   🔄 Tool call cost: {tool_out} out tokens (reasoning + function call)")
+                
+                get_model_prompt_manager().add_session_tool_call_usage(original_func.__name__, completion=tool_out)
+                get_model_prompt_manager().set_previous_total_in(usage.input_tokens)
+                get_model_prompt_manager().set_previous_tool_name(original_func.__name__)
+                
+                return result
+            
+            # Copy metadata from original function
+            wrapper.__name__ = original_func.__name__
+            wrapper.__doc__ = original_func.__doc__ or f"Wrapper for {original_func.__name__}"
+            wrapper.__signature__ = new_sig
+            wrapper.__annotations__ = {
+                'ctx': RunContext[None],
+                **{k: v for k, v in original_func.__annotations__.items()},
+                'return': original_func.__annotations__.get('return', Any)
+            }
+            
+            return wrapper
+        
+        wrapped = create_wrapper(func)
+        
+        # Register the wrapped function
+        self.agent.tool(wrapped, sequential=True)
         self._tools.append(func)
     
     
@@ -149,35 +237,32 @@ class VibenixAgent:
             return full_response, usage
         else:
             # For structured output, use streaming
-            async def _run_structured_agent():
-                # Reset usage limits on retry attempts (they are fresh for each agent.run())
-                limits = DEFAULT_USAGE_LIMITS.copy()
-                usage_limits = UsageLimits(**limits)
-                
-                # Capture messages to calculate usage on failure
-                with capture_run_messages() as messages:
-                    try:
-                        async with self.agent.run_stream(prompt, usage_limits=usage_limits) as result:
-                            output = await result.get_output()
-                            full_response = str(output)
-                    except (UsageLimitExceeded, UnexpectedModelBehavior) as e:
-                        # Store messages globally for the before_sleep callback
-                        _global_failed_messages = list(messages)
-                        raise
-                    print(full_response)
-                    
-                    # Get usage data
-                    usage_data = result.usage() if hasattr(result, 'usage') else None
-                    prompt_tokens, completion_tokens = extract_usage_tokens(usage_data)
-                    usage = Usage(
-                        prompt_tokens=prompt_tokens,
-                        completion_tokens=completion_tokens,
-                        cache_read_tokens=usage_data.cache_read_tokens if usage_data else 0,
-                    )
-                    
-                    return full_response, usage
+            # Reset usage limits on retry attempts (they are fresh for each agent.run())
+            limits = DEFAULT_USAGE_LIMITS.copy()
+            usage_limits = UsageLimits(**limits)
             
-            return await _retry_with_backoff(_run_structured_agent)
+            # Capture messages to calculate usage on failure
+            with capture_run_messages() as messages:
+                try:
+                    async with self.agent.run_stream(prompt, usage_limits=usage_limits) as result:
+                        output = await result.get_output()
+                        full_response = str(output)
+                except (UsageLimitExceeded, UnexpectedModelBehavior) as e:
+                    # Store messages globally for the before_sleep callback
+                    _global_failed_messages = list(messages)
+                    raise
+                print(full_response)
+                
+                # Get usage data
+                usage_data = result.usage() if hasattr(result, 'usage') else None
+                prompt_tokens, completion_tokens = extract_usage_tokens(usage_data)
+                usage = Usage(
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    cache_read_tokens=usage_data.cache_read_tokens if usage_data else 0,
+                )
+                
+                return full_response, usage
     
     def run_stream(self, prompt: str) -> tuple[str, Usage]:
         """Run the agent with streaming synchronously."""
@@ -194,6 +279,9 @@ def _capture_failed_usage_before_retry(retry_state, failed_messages=None):
     try:
         exception = retry_state.outcome.exception()
         print(f"Retrying prompt due to exception: {exception}")
+
+        from vibenix.ui.conversation_templated import get_model_prompt_manager
+        get_model_prompt_manager().reset_previous_step_total_usage() # Reset usage tracking for retry
 
         attempt = retry_state.attempt_number if retry_state else 1
         # Add separator to logs for retry attempts
@@ -240,6 +328,7 @@ def _capture_failed_usage_before_retry(retry_state, failed_messages=None):
                     
                     from vibenix.ui.conversation_templated import model_prompt_manager
                     model_prompt_manager.add_iteration_usage(estimated_usage)
+            # TODO reset agent usage
                 
     except Exception as e:
         print(f"Could not capture failed usage before retry: {e}")
