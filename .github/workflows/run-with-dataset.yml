@@ -18,18 +18,8 @@ on:
         required: false
         default: false
         type: boolean
-      model_provider:
-        description: 'Model provider to use'
-        required: false
-        default: 'gemini'
-        type: choice
-        options:
-          - anthropic
-          - ollama
-          - gemini
-          - openai
       model:
-        description: 'Model to use (e.g., claude-3-5-haiku-20241022, ollama/qwen2.5-coder:32b, gemini/gemini-2.5-flash, or gpt-4.1-mini-2025-04-14)'
+        description: 'Model to use (e.g., anthropic/claude-3-5-haiku-20241022, ollama/qwen2.5-coder:32b, gemini/gemini-2.5-flash, or openai/gpt-4.1-mini-2025-04-14)'
         required: false
         default: 'gemini/gemini-2.5-flash'
         type: string
@@ -40,11 +30,6 @@ on:
       model_settings:
         description: 'Model settings as JSON (e.g., {"temperature": 0.0, "max_tokens": 32768})'
         required: false
-        type: string
-      usage_limits:
-        description: 'Pydantic-sided usage limits as JSON (e.g., {"max_total_tokens": 100000, "max_requests": 10})'
-        required: false
-        default: '{}'
         type: string
       ollama_host:
         description: 'Ollama host URL (e.g., http://your-host.tailnet:11434)'
@@ -186,7 +171,19 @@ jobs:
       - name: Set provider
         id: provider
         run: |
-          provider="${{ github.event.inputs.model_provider || 'gemini' }}"
+          # Determine provider from model input
+          model = "${{ github.event.inputs.model || 'gemini/gemini-2.5-flash' }}"
+          if [[ "$model" == ollama/* ]]; then
+            provider="ollama"
+          elif [[ "$model" == openai/* || "$model" == gpt-* ]]; then
+            provider="openai"
+          elif [[ "$model" == anthropic/* || "$model" == claude-* ]]; then
+            provider="anthropic"
+          elif [[ "$model" == gemini/* || "$model" == *gemini* ]]; then
+            provider="gemini"
+          else
+            provider="openai"  # Default to openai if unknown
+          fi
           echo "provider=$provider" >> $GITHUB_OUTPUT
       
       - name: Install Nix
@@ -255,10 +252,6 @@ jobs:
           # Set model settings from input into env (only if provided)
           if [ -n "${{ github.event.inputs.model_settings }}" ]; then
             echo "VIBENIX_MODEL_SETTINGS='${{ github.event.inputs.model_settings }}'" >> $GITHUB_ENV
-          fi
-
-          if [ -n "${{ github.event.inputs.usage_limits }}" ]; then
-            echo "VIBENIX_USAGE_LIMITS='${{ github.event.inputs.usage_limits }}'" >> $GITHUB_ENV
           fi
 
           # Set Github token in nix config
