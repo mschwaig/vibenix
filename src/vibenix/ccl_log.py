@@ -161,6 +161,15 @@ class CCLLogger:
 
         self.leave_attribute()
 
+
+    def log_vibenix_settings(self):
+        """Log Vibenix settings using the global logger."""
+        import json
+        from vibenix.defaults import get_settings_manager, settings_to_json_format
+        compact = json.dumps(settings_to_json_format(get_settings_manager().get_settings()), separators=(',', ':'))
+        self.write_kv("vibenix_settings", compact)
+    
+    
     def log_session_end(self, signal: str = None, total_cost: float = None):
         """Log the end of a packaging session.
         

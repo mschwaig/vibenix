@@ -172,7 +172,7 @@ jobs:
         id: provider
         run: |
           # Determine provider from model input
-          model = "${{ github.event.inputs.model || 'gemini/gemini-2.5-flash' }}"
+          model="${{ github.event.inputs.model || 'gemini/gemini-2.5-flash' }}"
           if [[ "$model" == ollama/* ]]; then
             provider="ollama"
           elif [[ "$model" == openai/* || "$model" == gpt-* ]]; then

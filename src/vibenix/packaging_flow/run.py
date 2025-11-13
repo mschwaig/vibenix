@@ -214,6 +214,8 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     # Log model configuration
     from vibenix.model_config import get_model_config
     ccl_logger.log_model_config(get_model_config())
+    # Log vibenix settings
+    ccl_logger.log_vibenix_settings()
 
     ccl_logger.write_kv("project_url", project_url)
 
