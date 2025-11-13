@@ -33,9 +33,18 @@ on:
         required: false
         default: 'gemini/gemini-2.5-flash'
         type: string
+      vibenix_settings:
+        description: 'Vibenix settings as JSON (e.g., {"tools": ["get_builder_packages"]})'
+        required: false
+        type: string
       model_settings:
         description: 'Model settings as JSON (e.g., {"temperature": 0.0, "max_tokens": 32768})'
         required: false
+        type: string
+      usage_limits:
+        description: 'Pydantic-sided usage limits as JSON (e.g., {"max_total_tokens": 100000, "max_requests": 10})'
+        required: false
+        default: '{}'
         type: string
       ollama_host:
         description: 'Ollama host URL (e.g., http://your-host.tailnet:11434)'
@@ -238,9 +247,18 @@ jobs:
             echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> $GITHUB_ENV
           fi
           
-          # Set model settings from input (only if provided)
+          # Set vibenix settings from input into config file (only if provided)
+          if [ -n "${{ github.event.inputs.vibenix_settings }}" ]; then
+            echo "${{ github.event.inputs.vibenix_settings }}" > ~/.vibenix/vibenix_settings.json
+          fi
+
+          # Set model settings from input into env (only if provided)
           if [ -n "${{ github.event.inputs.model_settings }}" ]; then
             echo "VIBENIX_MODEL_SETTINGS='${{ github.event.inputs.model_settings }}'" >> $GITHUB_ENV
+          fi
+
+          if [ -n "${{ github.event.inputs.usage_limits }}" ]; then
+            echo "VIBENIX_USAGE_LIMITS='${{ github.event.inputs.usage_limits }}'" >> $GITHUB_ENV
           fi
 
           # Set Github token in nix config
