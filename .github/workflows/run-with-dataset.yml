@@ -230,6 +230,14 @@ jobs:
           
           echo "$config_json" > ~/.vibenix/config.json
           
+      - name: Create vibenix settings
+        run: |
+          # Set vibenix settings from input into config file (only if provided)
+          if [ -n "${{ github.event.inputs.vibenix_settings }}" ]; then
+            mkdir -p ~/.vibenix
+            echo '''${{ github.event.inputs.vibenix_settings }}''' > ~/.vibenix/vibenix_settings.json
+          fi
+
       - name: Setup environment
         run: |
           # Set API keys as environment variables based on provider
@@ -242,11 +250,6 @@ jobs:
             echo "OPENAI_API_KEY=dummy" >> $GITHUB_ENV
           elif [ "${{ steps.provider.outputs.provider }}" = "openai" ]; then
             echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> $GITHUB_ENV
-          fi
-          
-          # Set vibenix settings from input into config file (only if provided)
-          if [ -n "${{ github.event.inputs.vibenix_settings }}" ]; then
-            echo "${{ github.event.inputs.vibenix_settings }}" > ~/.vibenix/vibenix_settings.json
           fi
 
           # Set model settings from input into env (only if provided)
