@@ -232,8 +232,9 @@ jobs:
           
       - name: Create vibenix settings
         run: |
+          VIBENIX_SETTINGS='''${{ github.event.inputs.vibenix_settings }}'''
           # Set vibenix settings from input into config file (only if provided)
-          if [ -n "${{ github.event.inputs.vibenix_settings }}" ]; then
+          if [ -n "$VIBENIX_SETTINGS" ]; then
             mkdir -p ~/.vibenix
             echo '''${{ github.event.inputs.vibenix_settings }}''' > ~/.vibenix/vibenix_settings.json
           fi
@@ -288,6 +289,15 @@ jobs:
               echo "Cached fetcher not found: $fetcher_file"
             fi
           fi
+
+          # Verify debug that vibenix settings is present or not
+          if [ -f ~/.vibenix/vibenix_settings.json ]; then
+            echo "Vibenix settings file found:"
+            cat ~/.vibenix/vibenix_settings.json
+          else
+            echo "No vibenix settings file found."
+          fi
+          ls -lah ~/.vibenix/
           
           # Run vibenix with raw output and save results
           set -o pipefail

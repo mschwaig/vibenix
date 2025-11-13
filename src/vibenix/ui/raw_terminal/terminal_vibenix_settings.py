@@ -430,10 +430,10 @@ def ensure_settings_configured() -> None:
     saved_settings = load_saved_settings()
     
     if saved_settings:
-        print(f"\n✅ Found saved vibenix settings")
+        logger.info("Loaded saved vibenix settings from file")
         load_settings(saved_settings)
     else:
-        print(f"\n📝 No saved vibenix settings found. Using defaults.")
+        logger.info("No saved vibenix settings found. Using defaults.")
         # If no settings exist, use defaults
         load_settings(DEFAULT_VIBENIX_SETTINGS.copy())
 
