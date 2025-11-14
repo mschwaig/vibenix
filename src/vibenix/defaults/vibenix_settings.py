@@ -63,12 +63,12 @@ DEFAULT_PROMPT_ADD_TOOLS: Dict[str, List[str]] = {
 DEFAULT_VIBENIX_SETTINGS = {
     # Individual tool toggles (disable specific tools globally)
     # Empty: All tools enabled by default 
-    "tools": [],
+    "disabled_tools": [],
     
     # Per-prompt tool configuration
     # Values are lists of function objects
     "prompt_tools": DEFAULT_PROMPT_TOOLS.copy(),
-    "prompt_additional_tools": DEFAULT_PROMPT_ADD_TOOLS.copy(), # TODO 1
+    "prompt_additional_tools": DEFAULT_PROMPT_ADD_TOOLS.copy(),
     
     # General behavior, misc
     "behaviour": {
@@ -81,14 +81,15 @@ DEFAULT_VIBENIX_SETTINGS = {
             "iterations": 3,
         },
         # Enable or disable edit tools
-        "edit_tools": {
-            "enabled": True,
-            # Snippets to add to prompts whether edit tools are enabled or not
-            "snippets": [ # improve TODO 3
-                "To perform each change to the code, use the text editor tools: [<TOOLS>].",
-                "Your response should contain the full updated packaging code, wrapped like so:\n```nix\n...\n```."
-            ]
-        },
+        "edit_tools": True,
+        # 2 Agents edit (planning + implementation)
+        "2_agents": False,
+        # Snippets to add to prompts dynamically
+        "snippets": { # improve TODO 3
+            "tool": "To perform each change to the code, use the text editor tools: [<TOOLS>].",
+            "extract": "Your response should contain the full updated packaging code, wrapped like so:\n```nix\n...\n```.",
+            "feedback": "Your response should contain the list of concrete changes you would make to the packaging code. Be specific."
+        }
     }
 }
 # TODO create empty things if not present in config
@@ -116,20 +117,24 @@ class VibenixSettingsManager:
         for func in tools:
             self._tool_name_map[func.__name__] = func
     
-    def get_edit_tools_snippet(self, prompt: str) -> str:
-        """Get the snippet to use in the prompt template to match whether edit tools are used or not."""
-        edit_tools_setting = self.settings.get("behaviour", {}).get("edit_tools", {})
-        snippets = edit_tools_setting.get("snippets", [])
+    def get_snippet(self, prompt: str, snippet: str = None) -> str:
+        """Get a snippet to use in the prompt template."""
 
-        if len(snippets) < 2:
-            raise ValueError("Edit tools snippets must contain at least two entries.")
+        if self.is_edit_tools_prompt(prompt):
+            if self.get_setting_enabled("2_agents"):
+                return self.settings.get("behaviour", {}).get("snippets", {}).get("feedback", "")
 
-        if not self.get_setting_enabled("edit_tools"):
-            return snippets[1]
+            elif self.get_setting_enabled("edit_tools"):
+                snippet = self.settings.get("behaviour", {}).get("snippets", {}).get("tool", "")
+                tools = self.get_prompt_tools(prompt)
+                enabled_edit_tools = self._filter_enabled_tools(tools)
+                return snippet.replace("<TOOLS>", ", ".join([f.__name__ for f in enabled_edit_tools]))    
+
+            else:
+                return self.settings.get("behaviour", {}).get("snippets", {}).get("extract", "")
         else:
-            tools = self.get_prompt_tools(prompt)
-            enabled_edit_tools = self._filter_enabled_tools(tools)
-            return snippets[0].replace("<TOOLS>", ", ".join([f.__name__ for f in enabled_edit_tools]))    
+            return ""
+
 
     def is_edit_tools_prompt(self, prompt_name: str) -> bool:
         """Check if a prompt is an edit tools prompt (has code edit tools).
@@ -244,7 +249,7 @@ class VibenixSettingsManager:
         """
         enabled = []
         # Get list of disabled tool names
-        disabled_tool_names = self.settings.get("tools", [])
+        disabled_tool_names = self.settings.get("disabled_tools", [])
         
         for tool in tools:
             # Handle both function objects and names
@@ -282,7 +287,7 @@ class VibenixSettingsManager:
         Returns:
             List of disabled tool names
         """
-        return self.settings.get("tools", [])    
+        return self.settings.get("disabled_tools", [])    
 
     def toggle_global_tools(self, tool: Union[Callable, str]):
         """Disable a specific tool globally.
@@ -291,12 +296,12 @@ class VibenixSettingsManager:
             tool: The tool function or its name to disable
         """
         tool_name = tool.__name__ if callable(tool) else tool
-        if "tools" not in self.settings:
-            self.settings["tools"] = []
-        if tool_name not in self.settings["tools"]:
-            self.settings["tools"].append(tool_name)
+        if "disabled_tools" not in self.settings:
+            self.settings["disabled_tools"] = []
+        if tool_name not in self.settings["disabled_tools"]:
+            self.settings["disabled_tools"].append(tool_name)
         else:
-            self.settings["tools"].remove(tool_name)
+            self.settings["disabled_tools"].remove(tool_name)
 
     def set_disabled_tools(self, tools: List[Union[Callable, str]]):
         """Set the list of globally disabled tools.
@@ -309,7 +314,7 @@ class VibenixSettingsManager:
         if any(name not in all_tool_names for name in disabled_tool_names):
             raise ValueError(f"One or more tool names are invalid in {disabled_tool_names}.")
 
-        self.settings["tools"] = disabled_tool_names
+        self.settings["disabled_tools"] = disabled_tool_names
     
 
     # Prompt tools
