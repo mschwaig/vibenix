@@ -15,7 +15,7 @@ def view() -> str:
     return _view()
 
 
-def _view(view_range: list[int]=None) -> str:
+def _view(view_range: list[int]=None, prompt: str=None, line_numbers: bool=False) -> str:
     """Examine the contents of the current packaging expression."""
     
     try:
@@ -25,7 +25,14 @@ def _view(view_range: list[int]=None) -> str:
         # Check if view_range is valid
         lines = current_content.splitlines()
         # Add `<line_number>: ` prefix to each line
-        lines = [f"{i+1:>3}: {line}" for i, line in enumerate(lines)]
+        from vibenix.defaults.vibenix_settings import get_settings_manager, EDIT_FUNCTIONS
+
+        # Show line numbers if prompt uses edit tools or if specifically requested
+        if prompt or line_numbers:
+            prompt_tools = get_settings_manager().get_prompt_tools(prompt)
+            show_line_numbers = line_numbers or (get_settings_manager().get_setting_enabled("edit_tools") and any(func in prompt_tools for func in EDIT_FUNCTIONS))
+            if show_line_numbers:
+                lines = [f"{i+1:>3}: {line}" for i, line in enumerate(lines)]
         if view_range:
             if len(view_range) != 2:
                 error_msg = "Invalid `view_range`: must be a list of two integers."

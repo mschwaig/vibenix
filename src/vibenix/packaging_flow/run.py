@@ -182,7 +182,7 @@ def compare_template(available_builders, initial_code,
         builder_combinations = find_similar_builder_patterns(builders)
         coordinator_message(builder_combinations)
         # Let model analyse and make changes
-        compare_template_builders(view_package_contents(), builder_combinations, summary)
+        compare_template_builders(view_package_contents(prompt="compare_template_builders"), builder_combinations, summary)
         initial_code = get_package_contents()
         coordinator_message(f"Finished comparing builders to template.")
     else:
@@ -304,7 +304,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     coordinator_progress("Testing the initial build...")
     best = execute_build_and_add_to_stack(initial_code)
 
-    ccl_logger.log_initial_build(view_package_contents(), best.result)
+    ccl_logger.log_initial_build(view_package_contents(line_numbers=True), best.result)
     ccl_logger.enter_attribute("iterate")
     
     iteration = 0
@@ -336,7 +336,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
             coordinator_message("Hash mismatch detected, fixing...")
             coordinator_message(f"code:\n{candidate.code}\n")
             coordinator_message(f"error:\n{candidate.result.error.truncated()}\n")
-            fix_hash_mismatch(view_package_contents(), candidate.result.error.truncated())
+            fix_hash_mismatch(view_package_contents(prompt="fix_hash_mismatch"), candidate.result.error.truncated())
         elif candidate.result.error.type == NixErrorKind.INVALID_HASH:
             coordinator_message("Invalid SRI hash detected, fixing...")
             hash_match = re.search(r'hash \'([a-zA-Z0-9+/=]+)\'', candidate.result.error.truncated())
@@ -351,9 +351,9 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
                     from vibenix.flake import update_flake
                     update_flake(fixed_code)
                 else: # fallback if regex fails
-                    fix_hash_mismatch(view_package_contents(), candidate.result.error.truncated())
+                    fix_hash_mismatch(view_package_contents(prompt="fix_hash_mismatch"), candidate.result.error.truncated())
             else: # fallback
-                fix_hash_mismatch(view_package_contents(), candidate.result.error.truncated())
+                fix_hash_mismatch(view_package_contents(prompt="fix_hash_mismatch"), candidate.result.error.truncated())
         else:
             coordinator_message("Other error detected, fixing...")
             coordinator_message(f"code:\n{candidate.code}\n")
@@ -369,7 +369,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
                 error_truncated = error_truncated[syntax_error_index:]
 
             fix_build_error(
-                view_package_contents(),
+                view_package_contents(prompt="fix_build_error"),
                 error_truncated, 
                 summary, 
                 template_notes, 
