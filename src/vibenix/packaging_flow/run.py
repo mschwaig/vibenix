@@ -343,13 +343,16 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
             if hash_match:
                 invalid_hash = hash_match.group(1)
                 coordinator_message(f"Invalid hash from error: {invalid_hash}")
-                match = re.search(rf'"[^"]*?{invalid_hash}[^"]*?"', candidate.code)
+                escaped_hash = re.escape(invalid_hash)
+                match = re.search(rf'"[^"]*?{escaped_hash}[^"]*?"', candidate.code)
                 if match:
                     coordinator_message(f"Found invalid hash in code: {match.group(0)}")
-                fixed_code = re.sub(rf'"[^"]*?{invalid_hash}[^"]*?"', 'lib.fakeHash', candidate.code)
-                from vibenix.flake import update_flake
-                update_flake(fixed_code)
-            else: # fallback if regex fails
+                    fixed_code = re.sub(rf'"[^"]*?{escaped_hash}[^"]*?"', 'lib.fakeHash', candidate.code)
+                    from vibenix.flake import update_flake
+                    update_flake(fixed_code)
+                else: # fallback if regex fails
+                    fix_hash_mismatch(view_package_contents(), candidate.result.error.truncated())
+            else: # fallback
                 fix_hash_mismatch(view_package_contents(), candidate.result.error.truncated())
         else:
             coordinator_message("Other error detected, fixing...")
