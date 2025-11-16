@@ -63,7 +63,7 @@ DEFAULT_PROMPT_ADD_TOOLS: Dict[str, List[str]] = {
 DEFAULT_VIBENIX_SETTINGS = {
     # Individual tool toggles (disable specific tools globally)
     # Empty: All tools enabled by default 
-    "disabled_tools": [],
+    "tools": [],
     
     # Per-prompt tool configuration
     # Values are lists of function objects
@@ -249,7 +249,7 @@ class VibenixSettingsManager:
         """
         enabled = []
         # Get list of disabled tool names
-        disabled_tool_names = self.settings.get("disabled_tools", [])
+        disabled_tool_names = self.settings.get("tools", [])
         
         for tool in tools:
             # Handle both function objects and names
@@ -287,7 +287,7 @@ class VibenixSettingsManager:
         Returns:
             List of disabled tool names
         """
-        return self.settings.get("disabled_tools", [])    
+        return self.settings.get("tools", [])    
 
     def toggle_global_tools(self, tool: Union[Callable, str]):
         """Disable a specific tool globally.
@@ -296,12 +296,12 @@ class VibenixSettingsManager:
             tool: The tool function or its name to disable
         """
         tool_name = tool.__name__ if callable(tool) else tool
-        if "disabled_tools" not in self.settings:
-            self.settings["disabled_tools"] = []
-        if tool_name not in self.settings["disabled_tools"]:
-            self.settings["disabled_tools"].append(tool_name)
+        if "tools" not in self.settings:
+            self.settings["tools"] = []
+        if tool_name not in self.settings["tools"]:
+            self.settings["tools"].append(tool_name)
         else:
-            self.settings["disabled_tools"].remove(tool_name)
+            self.settings["tools"].remove(tool_name)
 
     def set_disabled_tools(self, tools: List[Union[Callable, str]]):
         """Set the list of globally disabled tools.
@@ -314,7 +314,7 @@ class VibenixSettingsManager:
         if any(name not in all_tool_names for name in disabled_tool_names):
             raise ValueError(f"One or more tool names are invalid in {disabled_tool_names}.")
 
-        self.settings["disabled_tools"] = disabled_tool_names
+        self.settings["tools"] = disabled_tool_names
     
 
     # Prompt tools
