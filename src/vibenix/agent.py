@@ -91,35 +91,27 @@ class VibenixAgent:
                 # Get usage at this step
                 usage = ctx.usage
 
-                previous_tool = get_model_prompt_manager().get_previous_tool_name()
-                if previous_tool and usage.input_tokens > 0:
-                    # the result of the previous tool are input tokens on current tool call
-                    # to obtain it is: input = curr_input - prev_total_in - prev_out
-                    previous_total_in = get_model_prompt_manager().get_previous_total_in()
-                    previous_tool_in = usage.input_tokens - previous_total_in - get_model_prompt_manager().get_previous_step_usage().completion_tokens
-                    get_model_prompt_manager().add_session_tool_call_usage(previous_tool, prompt=previous_tool_in)
-
-                    print(f"\n🔧 Previous tool: {previous_tool}")
-                    print(f"   📊 Previous tool call in: {previous_tool_in} in tokens (tool result as input)")
-                
                 # Get previous step usage to calculate the delta
-                prev_total_usage = get_model_prompt_manager().get_previous_step_total_usage()
+                prev_total_usage = get_model_prompt_manager().get_previous_total_usage()
                 
                 # Calculate curr_out: output tokens used to make this function call
-                # This is the delta in output tokens from the previous step
-                tool_out = usage.output_tokens - prev_total_usage.completion_tokens
+                # This is the delta in output tokens from the previous step (total out tokens till then)
+                tool_out = max(0, usage.output_tokens - prev_total_usage.completion_tokens)
                 
                 # Call the original function and get the result
                 result = original_func(*args, **kwargs)
+
+                # Estimate tokens from result
+                import tiktoken
+                encoder = tiktoken.encoding_for_model("gpt-4-1106-preview")
+                tool_in = len(encoder.encode(str(result)))
                 
                 print(f"\n🔧 Tool called: {original_func.__name__}")
                 print(f"   📊 Total usage: {usage.input_tokens} in, {usage.output_tokens} out")
-                print(f"   🔄 Tool call cost: {tool_out} out tokens (reasoning + function call)")
+                print(f"   🔄 Tool call cost: estimated {tool_in} in tokens from result, {tool_out} out tokens\n")
                 
-                get_model_prompt_manager().add_session_tool_call_usage(original_func.__name__, completion=tool_out)
-                get_model_prompt_manager().set_previous_total_in(usage.input_tokens)
-                get_model_prompt_manager().set_previous_tool_name(original_func.__name__)
-                
+                get_model_prompt_manager().add_session_tool_usage(original_func.__name__, completion=tool_out)
+                get_model_prompt_manager().set_previous_total_usage(usage.output_tokens, usage.input_tokens, usage.cache_read_tokens)
                 return result
             
             # Copy metadata from original function
@@ -281,7 +273,7 @@ def _capture_failed_usage_before_retry(retry_state, failed_messages=None):
         print(f"Retrying prompt due to exception: {exception}")
 
         from vibenix.ui.conversation_templated import get_model_prompt_manager
-        get_model_prompt_manager().reset_previous_step_total_usage() # Reset usage tracking for retry
+        get_model_prompt_manager().reset_previous_total_usage() # Reset usage tracking for retry
 
         attempt = retry_state.attempt_number if retry_state else 1
         # Add separator to logs for retry attempts

@@ -17,6 +17,7 @@ from vibenix.ui.conversation import (
     get_ui_adapter
 )
 from vibenix.defaults import get_settings_manager
+from pydantic_ai.usage import RunUsage
 
 from vibenix.packaging_flow.model_prompts.prompt_loader import get_prompt_loader
 from vibenix.agent import VibenixAgent
@@ -30,11 +31,8 @@ class ModelPromptManager:
     def __init__(self, model: str):
         self._session_usage = Usage(model=model)
         self._iteration_usage = Usage(model=model)
-        self._session_tool_call_usage = {} # total across retries
-        self._previous_step_total_usage = Usage(model=model) # total on single attempt
-        self._previous_step_usage = Usage(model=model) # usage on previous step
-        self._previous_step_total_in = 0
-        self._previous_tool_name = None 
+        self._session_tool_usage = {} # total across retries
+        self._previous_total_usage = Usage(model=model) # total usage until X attempt
         self._model = model
     
     def get_session_cost(self):
@@ -67,58 +65,34 @@ class ModelPromptManager:
         self._session_usage.cache_read_tokens += self._iteration_usage.cache_read_tokens
         self._iteration_usage = Usage(model=self._model)
 
-    def get_session_tool_call_usage(self) -> dict:
+    def get_session_tool_usage(self) -> dict:
         """Get usage per tool call."""
         from copy import copy
-        return copy(self._session_tool_call_usage)
+        return copy(self._session_tool_usage)
 
-    def get_previous_total_in(self) -> int:
-        """Get the total input tokens for the previous step."""
-        return self._previous_step_total_in
-
-    def set_previous_total_in(self, total_in: int):
-        """Set the total input tokens for the previous step."""
-        self._previous_step_total_in = total_in
-
-    def add_session_tool_call_usage(self, tool_name: str, completion: int=0, prompt: int=0, cache_read: int=0):
+    def add_session_tool_usage(self, tool_name: str, completion: int=0, prompt: int=0, cache_read: int=0):
         """Add usage from a tool call to the tool call usage."""
-        if tool_name not in self._session_tool_call_usage:
-            self._session_tool_call_usage[tool_name] = Usage(model=self._model)
-        self._session_tool_call_usage[tool_name].completion_tokens += completion
-        self._session_tool_call_usage[tool_name].prompt_tokens += prompt
-        self._session_tool_call_usage[tool_name].cache_read_tokens += cache_read
+        if tool_name not in self._session_tool_usage:
+            self._session_tool_usage[tool_name] = Usage(model=self._model)
+        self._session_tool_usage[tool_name].completion_tokens += completion
+        self._session_tool_usage[tool_name].prompt_tokens += prompt
+        self._session_tool_usage[tool_name].cache_read_tokens += cache_read
 
-        self._previous_step_usage.prompt_tokens += prompt
-        self._previous_step_usage.completion_tokens += completion
-        self._previous_step_usage.cache_read_tokens += cache_read
+    def set_previous_total_usage(self, completion: int=0, prompt: int=0, cache_read: int=0):
+        """Set the previous step total usage counters."""
+        self._previous_total_usage.completion_tokens = completion
+        self._previous_total_usage.prompt_tokens = prompt
+        self._previous_total_usage.cache_read_tokens = cache_read
 
-    def get_previous_step_total_usage(self) -> Usage:
+    def get_previous_total_usage(self) -> Usage:
         """Get usage for the previous step (total usage up to that point)."""
         from copy import deepcopy
-        usage = deepcopy(self._previous_step_usage)
+        usage = deepcopy(self._previous_total_usage)
         return usage
 
-    def get_previous_step_usage(self) -> Usage:
-        """Get usage for the previous step (since last reset)."""
-        from copy import deepcopy
-        usage = deepcopy(self._previous_step_usage)
-        return usage
-
-    def set_previous_step_usage(self, usage: Usage):
-        """Set usage for the previous step."""
-        self._previous_step_usage = usage
-
-    def get_previous_tool_name(self) -> Optional[str]:
-        """Get the name of the previous tool called."""
-        return self._previous_tool_name
-
-    def set_previous_tool_name(self, tool_name: str):
-        """Set the name of the previous tool called."""
-        self._previous_tool_name = tool_name
-
-    def reset_previous_step_total_usage(self):
+    def reset_previous_total_usage(self):
         """Reset the previous step total usage counters."""
-        self._previous_step_usage = Usage(model=self._model)
+        self._previous_total_usage = Usage(model=self._model)
     #####
 
     def ask_model_prompt(self, template_path: str):
@@ -179,7 +153,10 @@ class ModelPromptManager:
 
                 # Add additional snippets TODO move to prompt itself
                 if get_settings_manager().is_edit_tools_prompt(prompt_key):
-                    edit_tools_snippet = get_settings_manager().get_edit_tools_snippet(prompt_key)
+                    #if get_settings_manager().get_setting_enabled("2_agents"):
+                    #    edit_tools_snippet = get_settings_manager().get_snippet(snippet="feedback")
+                    #else:
+                    edit_tools_snippet = get_settings_manager().get_snippet(prompt_key)
                     rendered_prompt += "\n\n" + edit_tools_snippet
                 
                 # Show coordinator message (first line or whole prompt if short)
@@ -227,6 +204,7 @@ class ModelPromptManager:
                     # Track usage for cost calculations
                     self.add_iteration_usage(usage)
 
+                    self.reset_previous_total_usage()
                     # If not using edit_tools, need to extract code and updated flake
                     from vibenix.tools import EDIT_FUNCTIONS
                     if get_settings_manager().is_edit_tools_prompt(prompt_key) and not (get_settings_manager().get_setting_enabled("edit_tools") or any(func in get_settings_manager().get_prompt_tools(prompt_key) for func in EDIT_FUNCTIONS)):

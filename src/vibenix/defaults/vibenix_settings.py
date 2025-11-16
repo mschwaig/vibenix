@@ -83,7 +83,7 @@ DEFAULT_VIBENIX_SETTINGS = {
         # Enable or disable edit tools
         "edit_tools": True,
         # 2 Agents edit (planning + implementation)
-        "2_agents": False,
+        #"2_agents": False,
         # Snippets to add to prompts dynamically
         "snippets": { # improve TODO 3
             "tool": "To perform each change to the code, use the text editor tools: [<TOOLS>].",
@@ -98,7 +98,10 @@ class VibenixSettingsManager:
     """Manages vibenix settings and resolves prompt tools."""
     
     def __init__(self, settings: Optional[Dict[str, Any]] = None):
-        self.settings = settings or DEFAULT_VIBENIX_SETTINGS.copy()
+        # Merge provided settings with DEFAULT_VIBENIX_SETTINGS in one line
+        self.settings = DEFAULT_VIBENIX_SETTINGS.copy()
+        if settings:
+            self.settings.update(settings)
         self._tool_name_map = self._build_tool_name_map()
     
 
@@ -117,23 +120,19 @@ class VibenixSettingsManager:
         for func in tools:
             self._tool_name_map[func.__name__] = func
     
-    def get_snippet(self, prompt: str, snippet: str = None) -> str:
+    def get_snippet(self, prompt: str = "", snippet: str = "") -> str:
         """Get a snippet to use in the prompt template."""
 
-        if self.is_edit_tools_prompt(prompt):
-            if self.get_setting_enabled("2_agents"):
-                return self.settings.get("behaviour", {}).get("snippets", {}).get("feedback", "")
+        if snippet:
+            return self.settings.get("behaviour", {}).get("snippets", {}).get(snippet, "")
 
-            elif self.get_setting_enabled("edit_tools"):
-                snippet = self.settings.get("behaviour", {}).get("snippets", {}).get("tool", "")
-                tools = self.get_prompt_tools(prompt)
-                enabled_edit_tools = self._filter_enabled_tools(tools)
-                return snippet.replace("<TOOLS>", ", ".join([f.__name__ for f in enabled_edit_tools]))    
-
-            else:
-                return self.settings.get("behaviour", {}).get("snippets", {}).get("extract", "")
+        if self.get_setting_enabled("edit_tools"):
+            snippet = self.settings.get("behaviour", {}).get("snippets", {}).get("tool", "")
+            tools = self.get_prompt_tools(prompt)
+            enabled_edit_tools = self._filter_enabled_tools(tools)
+            return snippet.replace("<TOOLS>", ", ".join([f.__name__ for f in enabled_edit_tools]))    
         else:
-            return ""
+            return self.settings.get("behaviour", {}).get("snippets", {}).get("extract", "")
 
 
     def is_edit_tools_prompt(self, prompt_name: str) -> bool:
@@ -377,7 +376,7 @@ class VibenixSettingsManager:
         
         self.settings["prompt_additional_tools"][prompt_name] = tool_spec
 
-    def get_prompt_additional_tools(self, prompt_name: str) -> List[str]:
+    def get_prompt_additional_tools(self, prompt_name: str) -> List[Callable]:
         """Get the list of additional tool functions for a specific prompt.
         
         Args:
