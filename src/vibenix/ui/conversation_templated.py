@@ -32,7 +32,6 @@ class ModelPromptManager:
         self._session_usage = Usage(model=model)
         self._iteration_usage = Usage(model=model)
         self._session_tool_usage = {} # total across retries
-        self._previous_total_usage = Usage(model=model) # total usage until X attempt
         self._model = model
     
     def get_session_cost(self):
@@ -77,22 +76,6 @@ class ModelPromptManager:
         self._session_tool_usage[tool_name].completion_tokens += completion
         self._session_tool_usage[tool_name].prompt_tokens += prompt
         self._session_tool_usage[tool_name].cache_read_tokens += cache_read
-
-    def set_previous_total_usage(self, completion: int=0, prompt: int=0, cache_read: int=0):
-        """Set the previous step total usage counters."""
-        self._previous_total_usage.completion_tokens = completion
-        self._previous_total_usage.prompt_tokens = prompt
-        self._previous_total_usage.cache_read_tokens = cache_read
-
-    def get_previous_total_usage(self) -> Usage:
-        """Get usage for the previous step (total usage up to that point)."""
-        from copy import deepcopy
-        usage = deepcopy(self._previous_total_usage)
-        return usage
-
-    def reset_previous_total_usage(self):
-        """Reset the previous step total usage counters."""
-        self._previous_total_usage = Usage(model=self._model)
     #####
 
     def ask_model_prompt(self, template_path: str):
@@ -204,13 +187,14 @@ class ModelPromptManager:
                     # Track usage for cost calculations
                     self.add_iteration_usage(usage)
 
-                    self.reset_previous_total_usage()
+                    print("WAAAAAAAAAAAAA")
                     # If not using edit_tools, need to extract code and updated flake
                     from vibenix.tools import EDIT_FUNCTIONS
                     if get_settings_manager().is_edit_tools_prompt(prompt_key) and not (get_settings_manager().get_setting_enabled("edit_tools") or any(func in get_settings_manager().get_prompt_tools(prompt_key) for func in EDIT_FUNCTIONS)):
                         from vibenix.parsing import extract_updated_code
                         from vibenix.flake import update_flake
                         try:
+                            print("EXTRACTING ------")
                             code = extract_updated_code(result)
                             update_flake(code)
                         except ValueError as e:

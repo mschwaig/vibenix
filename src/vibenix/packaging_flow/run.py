@@ -504,6 +504,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
                 refinement_usage.cache_read_tokens
             )
         
+        ccl_logger.log_total_tool_cost()
         # Always log success and return, regardless of refinement outcome
         ccl_logger.log_session_end(signal=None, total_cost=model_prompt_manager.get_session_cost())
         close_logger()
@@ -527,6 +528,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     if isinstance(packaging_failure, PackagingFailure):
         coordinator_message(f"Packaging failure type: {packaging_failure}\nDetails:\n{details}\n")
 
+    ccl_logger.log_total_tool_cost()
     ccl_logger.log_session_end(signal=None, total_cost=model_prompt_manager.get_session_cost())
     close_logger()
     return None

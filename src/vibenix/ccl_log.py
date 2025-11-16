@@ -271,6 +271,18 @@ class CCLLogger:
         self.write_kv("packaging_cost", f"{packaging_cost:.6f}")
         self.leave_attribute()
 
+    def log_total_tool_cost(self):
+        """Log the total cost for each tool call."""
+        self.enter_attribute("tool_cost")
+        from vibenix.ui.conversation_templated import get_model_prompt_manager
+        session_tool_usage = get_model_prompt_manager().get_session_tool_usage()
+        for tool_name, usage in session_tool_usage.items():
+            self.enter_attribute(tool_name)
+            self.write_kv("input_tokens", str(usage.input_tokens))
+            self.write_kv("cost", f"{usage.calculate_cost():.6f}")
+            self.leave_attribute()
+        self.leave_attribute()
+
     def prompt_begin(self, prompt_name: str, prompt_template: str, indent_level: int, prompt_args : Dict):
         """Log the beginning of a model prompt."""
         self.enter_attribute("model_prompt", log_start=True)

@@ -88,16 +88,6 @@ class VibenixAgent:
                 """Wrapper that tracks tool usage via RunContext."""
                 from vibenix.ui.conversation_templated import get_model_prompt_manager
 
-                # Get usage at this step
-                usage = ctx.usage
-
-                # Get previous step usage to calculate the delta
-                prev_total_usage = get_model_prompt_manager().get_previous_total_usage()
-                
-                # Calculate curr_out: output tokens used to make this function call
-                # This is the delta in output tokens from the previous step (total out tokens till then)
-                tool_out = max(0, usage.output_tokens - prev_total_usage.completion_tokens)
-                
                 # Call the original function and get the result
                 result = original_func(*args, **kwargs)
 
@@ -106,12 +96,7 @@ class VibenixAgent:
                 encoder = tiktoken.encoding_for_model("gpt-4-1106-preview")
                 tool_in = len(encoder.encode(str(result)))
                 
-                print(f"\n🔧 Tool called: {original_func.__name__}")
-                print(f"   📊 Total usage: {usage.input_tokens} in, {usage.output_tokens} out")
-                print(f"   🔄 Tool call cost: estimated {tool_in} in tokens from result, {tool_out} out tokens\n")
-                
-                get_model_prompt_manager().add_session_tool_usage(original_func.__name__, completion=tool_out)
-                get_model_prompt_manager().set_previous_total_usage(usage.output_tokens, usage.input_tokens, usage.cache_read_tokens)
+                get_model_prompt_manager().add_session_tool_usage(original_func.__name__, prompt=tool_in)
                 return result
             
             # Copy metadata from original function
@@ -273,7 +258,6 @@ def _capture_failed_usage_before_retry(retry_state, failed_messages=None):
         print(f"Retrying prompt due to exception: {exception}")
 
         from vibenix.ui.conversation_templated import get_model_prompt_manager
-        get_model_prompt_manager().reset_previous_total_usage() # Reset usage tracking for retry
 
         attempt = retry_state.attempt_number if retry_state else 1
         # Add separator to logs for retry attempts
