@@ -187,14 +187,12 @@ class ModelPromptManager:
                     # Track usage for cost calculations
                     self.add_iteration_usage(usage)
 
-                    print("WAAAAAAAAAAAAA")
                     # If not using edit_tools, need to extract code and updated flake
                     from vibenix.tools import EDIT_FUNCTIONS
-                    if get_settings_manager().is_edit_tools_prompt(prompt_key) and not (get_settings_manager().get_setting_enabled("edit_tools") or any(func in get_settings_manager().get_prompt_tools(prompt_key) for func in EDIT_FUNCTIONS)):
+                    if get_settings_manager().is_edit_tools_prompt(prompt_key) and (not get_settings_manager().get_setting_enabled("edit_tools") or not any(func in get_settings_manager().get_prompt_tools(prompt_key) for func in EDIT_FUNCTIONS)):
                         from vibenix.parsing import extract_updated_code
                         from vibenix.flake import update_flake
                         try:
-                            print("EXTRACTING ------")
                             code = extract_updated_code(result)
                             update_flake(code)
                         except ValueError as e:
