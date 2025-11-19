@@ -387,8 +387,6 @@ def show_vibenix_settings_terminal() -> bool:
             view_current_settings()
         
         elif choice == '6':
-            # Load into the global settings manager
-            load_settings(settings)
             # Save and exit
             save_settings_to_file()
             print("\n✅ Settings saved and applied!")

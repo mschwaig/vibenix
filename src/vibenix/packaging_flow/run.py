@@ -11,7 +11,7 @@ from vibenix.nix import eval_progress, execute_build_and_add_to_stack, revert_pa
 from vibenix.packaging_flow.model_prompts import (
     pick_template, summarize_github, fix_build_error, fix_hash_mismatch,
     analyze_package_failure, classify_packaging_failure, PackagingFailure,
-    summarize_build, choose_builders, compare_template_builders, model_prompt_manager
+    summarize_build, choose_builders, compare_template_builders, get_model_prompt_manager
 )
 from vibenix.packaging_flow.refinement import refine_package
 from vibenix.packaging_flow.user_prompts import get_project_url
@@ -389,7 +389,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
 
         if updated_code == candidate.code:
             coordinator_message("No changes made by the model, skipping iteration.")
-            usage = model_prompt_manager.get_iteration_usage()
+            usage = get_model_prompt_manager().get_iteration_usage()
             ccl_logger.log_iteration_cost(
                 iteration=iteration,
                 iteration_cost=usage.calculate_cost(),
@@ -470,7 +470,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
                     revert_packaging_to_solution(best)
                     consecutive_non_build_errors = 0
         
-        usage = model_prompt_manager.get_iteration_usage()
+        usage = get_model_prompt_manager().get_iteration_usage()
         ccl_logger.log_iteration_cost(
             iteration=iteration,
             iteration_cost=usage.calculate_cost(),
@@ -490,12 +490,12 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     
     if candidate.result.success:
         if get_settings_manager().get_setting_enabled("refinement"):
-            packaging_usage = model_prompt_manager.get_session_usage()
+            packaging_usage = get_model_prompt_manager().get_session_usage()
             coordinator_message("Build succeeded! Refining package...")
             candidate = refine_package(candidate, summary)
             ccl_logger.write_kv("refined_package", candidate.code)
 
-            refinement_usage = model_prompt_manager.get_session_usage() - packaging_usage
+            refinement_usage = get_model_prompt_manager().get_session_usage() - packaging_usage
             ccl_logger.log_refinement_cost(
                 packaging_usage.calculate_cost(),
                 refinement_usage.calculate_cost(),
@@ -506,7 +506,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
         
         ccl_logger.log_total_tool_cost()
         # Always log success and return, regardless of refinement outcome
-        ccl_logger.log_session_end(signal=None, total_cost=model_prompt_manager.get_session_cost())
+        ccl_logger.log_session_end(signal=None, total_cost=get_model_prompt_manager().get_session_cost())
         close_logger()
         if output_dir:
             save_package_output(candidate.code, project_url, output_dir)
@@ -529,7 +529,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
         coordinator_message(f"Packaging failure type: {packaging_failure}\nDetails:\n{details}\n")
 
     ccl_logger.log_total_tool_cost()
-    ccl_logger.log_session_end(signal=None, total_cost=model_prompt_manager.get_session_cost())
+    ccl_logger.log_session_end(signal=None, total_cost=get_model_prompt_manager().get_session_cost())
     close_logger()
     return None
 
@@ -569,7 +569,7 @@ def run_packaging_flow(output_dir=None, project_url=None, revision=None, fetcher
             coordinator_message(f"Final package code:\n```nix\n{result}\n```")
         else:
             coordinator_message("Packaging failed. Please check the errors above.")
-        print(f"Total API cost: ${model_prompt_manager.get_session_cost():.4f}")
+        print(f"Total API cost: ${get_model_prompt_manager().get_session_cost():.4f}")
     except Exception as e:
         coordinator_error(f"Unexpected error: {e}")
         raise
