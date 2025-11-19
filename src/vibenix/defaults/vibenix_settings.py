@@ -408,12 +408,14 @@ class VibenixSettingsManager:
         with open(filepath, "w") as f:
             json.dump(settings_to_json_format(settings_diff), f, indent=4)
 
-    def get_settings(self) -> Dict[str, Any]:
+    def get_settings(self, diff_only: bool=False) -> Dict[str, Any]:
         """Get the current settings dictionary.
         
         Returns:
             The current settings dictionary
         """
+        if diff_only:
+            return deep_diff(DEFAULT_VIBENIX_SETTINGS, self.settings)
         return self.settings
 
 # Helper functions for converting between JSON (names) and Python (function objects)

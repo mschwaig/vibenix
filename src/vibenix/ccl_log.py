@@ -166,7 +166,8 @@ class CCLLogger:
         """Log Vibenix settings using the global logger."""
         import json
         from vibenix.defaults import get_settings_manager, settings_to_json_format
-        compact = json.dumps(settings_to_json_format(get_settings_manager().get_settings()), separators=(',', ':'))
+        settings = get_settings_manager().get_settings(diff_only=True)
+        compact = json.dumps(settings_to_json_format(settings), separators=(',', ':'))
         self.write_kv("vibenix_settings", compact)
     
     
