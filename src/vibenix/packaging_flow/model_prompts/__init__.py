@@ -7,7 +7,7 @@ from enum import Enum
 from typing import List, Optional
 
 from vibenix.template.template_types import TemplateType
-from vibenix.ui.conversation_templated import model_prompt_manager
+from vibenix.ui.conversation_templated import get_model_prompt_manager
 from vibenix.tools import (
     search_nixpkgs_for_package_semantic,
     search_nixpkgs_for_package_literal,
@@ -25,7 +25,7 @@ from vibenix.errors import NixBuildErrorDiff, LogDiff, FullLogDiff, ProcessedLog
 from vibenix.packaging_flow.model_prompts.enums import RefinementExit, PackagingFailure
 
 
-ask_model_prompt = model_prompt_manager.ask_model_prompt
+ask_model_prompt = get_model_prompt_manager().ask_model_prompt
 
 def run_formatter_after(func):
     """Decorator to automatically run Nix formatter after prompts that modify code."""
@@ -201,4 +201,3 @@ __all__ = [
     "choose_builders",
     "compare_template_builders",
 ]
-ALL_PROMPTS = __all__

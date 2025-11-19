@@ -10,9 +10,13 @@ from vibenix.defaults.vibenix_settings import (
     load_settings,
     DEFAULT_VIBENIX_SETTINGS,
     ADDITIONAL_TOOLS,
+    PROJECT_TOOLS,
+    NIXPKGS_TOOLS,
+    SEARCH_TOOLS,
+    EDIT_TOOLS,
+    ALL_TOOLS,
     settings_from_json_format
 )
-from vibenix.tools import ALL_FUNCTIONS, SEARCH_FUNCTIONS, EDIT_FUNCTIONS
 from vibenix.ui.logging_config import logger
 
 
@@ -66,7 +70,7 @@ def show_tool_list(tools: List, disabled_tools: Set[str], title: str):
 
 def toggle_tools_menu() -> None:
     """Interactive menu for toggling individual tools on/off."""
-    all_tools = ALL_FUNCTIONS.copy() + ADDITIONAL_TOOLS.copy()
+    all_tools = ALL_TOOLS.copy()
     
     while True:
         # Get currently disabled tools from settings (it's a list of tool names)
@@ -150,22 +154,8 @@ def configure_single_prompt_tools(prompt_name: str) -> None:
     selected_tools = set()
     selected_additional_tools = set()
     
-    current_tools = get_settings_manager().get_prompt_tools(prompt_name)
-    # Convert current tools to names
-    for tool in current_tools:
-        if callable(tool):
-            selected_tools.add(tool.__name__)
-        else:
-            selected_tools.add(tool)
-    
-    # Get current additional tools
-    current_additional = get_settings_manager().get_prompt_additional_tools_names(prompt_name)
-    for tool in current_additional:
-        selected_additional_tools.add(tool)
-    
-    all_tools = ALL_FUNCTIONS.copy()
-    all_additional = ADDITIONAL_TOOLS.copy()
-    print("GGHGHH")
+    selected_tools = set(get_settings_manager().get_prompt_tools(prompt_name))
+    all_tools = ALL_TOOLS.copy()
     
     while True:
         print("\n" + "=" * 60)
@@ -178,63 +168,52 @@ def configure_single_prompt_tools(prompt_name: str) -> None:
         else:
             print("\n⚠️  No tools selected (prompt will have no tools)")
         
-        if selected_additional_tools:
-            print(f"✅ Additional tools ({len(selected_additional_tools)}): {', '.join(sorted(selected_additional_tools))}")
-        
         print(f"\n📦 Available Tools:")
-        for i, tool in enumerate(all_tools, 1):
-            tool_name = tool.__name__
+        for i, tool_name in enumerate(all_tools, 1):
             status = "✅ SELECTED" if tool_name in selected_tools else "  "
             print(f"{i:2}. {status:12} {tool_name}")
-        
-        for i, tool_name in enumerate(all_additional, 1):
-            status = "✅ SELECTED" if tool_name in selected_additional_tools else "  "
-            print(f"{i+len(all_tools):2}. {status:12} {tool_name}")
         
         print("\n" + "-" * 60)
         print("Commands:")
         print("  [number]      - Toggle tool selection")
-        print("  'additional'  - Toggle all additional selection")
-        print("  'search'      - Select all SEARCH_FUNCTIONS")
-        print("  'edit'        - Select all EDIT_FUNCTIONS")
-        print("  'all'         - Select all SEARCH+EDIT tools")
+        print("  'search'      - Select all SEARCH_TOOLS")
+        print("  'edit'        - Select all EDIT_TOOLS")
+        print("  'project'     - Select all project-specific tools")
+        print("  'nixpkgs'     - Select all nixpkgs-specific tools")
+        print("  'all'         - Select all tools")
         print("  'none'        - Deselect all tools")
         print("  'q'           - Finish and save")
         
         choice = input("\nYour choice: ").strip().lower()
         
         if choice == 'q':
-            # Convert selected tool names back to function objects
-            result_tools = []
-            tool_map = {tool.__name__: tool for tool in all_tools}
-            for tool_name in selected_tools:
-                if tool_name in tool_map:
-                    result_tools.append(tool_map[tool_name])
-            get_settings_manager().set_prompt_tools(prompt_name, result_tools)
-            
-            # Save additional tools as list of strings
-            get_settings_manager().set_prompt_additional_tools(prompt_name, list(selected_additional_tools))
+            get_settings_manager().set_prompt_tools(prompt_name, selected_tools)
             return
         
         elif choice == 'search':
-            for tool in SEARCH_FUNCTIONS:
+            for tool in SEARCH_TOOLS:
                 selected_tools.add(tool.__name__)
-            print("\n✅ Added all SEARCH_FUNCTIONS")
+            print("\n✅ Added all SEARCH_TOOLS")
         
         elif choice == 'edit':
-            for tool in EDIT_FUNCTIONS:
+            for tool in EDIT_TOOLS:
                 selected_tools.add(tool.__name__)
-            print("\n✅ Added all EDIT_FUNCTIONS")
+            print("\n✅ Added all EDIT_TOOLS")
+
+        elif choice == 'project':
+            for tool_name in PROJECT_TOOLS:
+                selected_tools.add(tool_name)
+            print("\n✅ Added all project-specific tools")
+
+        elif choice == 'nixpkgs':
+            for tool_name in NIXPKGS_TOOLS:
+                selected_tools.add(tool_name)
+            print("\n✅ Added all nixpkgs-specific tools")
         
         elif choice == 'all':
-            for tool in all_tools:
-                selected_tools.add(tool.__name__)
+            for tool_name in all_tools:
+                selected_tools.add(tool_name)
             print("\n✅ Selected all tools")
-        
-        elif choice == 'additional':
-            for tool_name in all_additional:
-                selected_additional_tools.add(tool_name)
-            print("\n✅ Selected all additional tools")
         
         elif choice == 'none':
             selected_tools.clear()
@@ -244,8 +223,7 @@ def configure_single_prompt_tools(prompt_name: str) -> None:
             try:
                 idx = int(choice) - 1
                 if 0 <= idx < len(all_tools):
-                    tool = all_tools[idx]
-                    tool_name = tool.__name__
+                    tool_name = all_tools[idx]
                     
                     if tool_name in selected_tools:
                         selected_tools.remove(tool_name)
@@ -253,18 +231,8 @@ def configure_single_prompt_tools(prompt_name: str) -> None:
                     else:
                         selected_tools.add(tool_name)
                         print(f"\n✅ Selected: {tool_name}")
-                elif 0 <= idx < len(all_tools) + len(all_additional):
-                    # Additional tool
-                    tool_name = all_additional[idx - len(all_tools)]
-                    
-                    if tool_name in selected_additional_tools:
-                        selected_additional_tools.remove(tool_name)
-                        print(f"\n❌ Deselected: {tool_name}")
-                    else:
-                        selected_additional_tools.add(tool_name)
-                        print(f"\n✅ Selected: {tool_name}")
                 else:
-                    print(f"\n❌ Please enter a number between 1 and {len(all_tools) + len(all_additional)}")
+                    print(f"\n❌ Please enter a number between 1 and {len(all_tools)}")
             except ValueError:
                 print("\n❌ Invalid input. Enter a number, command, or 'q'")
 
@@ -277,7 +245,15 @@ def configure_general_behaviour_menu() -> None:
         print("⚙️  GENERAL BEHAVIOUR SETTINGS")
         print("=" * 60)
 
-        behaviour_keys = get_settings_manager().list_all_behaviour_settings()
+        settings = get_settings_manager().list_all_behaviour_settings()
+        behaviour_keys = []
+        for setting_name in settings: # filter for settings that can be toggled
+            try:
+                get_settings_manager().get_setting_enabled(setting_name)
+                behaviour_keys.append(setting_name)
+            except Exception:
+                pass
+
         for i in range(1, len(behaviour_keys)+1):
             setting_name = behaviour_keys[i-1]
             enabled = get_settings_manager().get_setting_enabled(setting_name)
@@ -345,7 +321,16 @@ def view_current_settings():
     
     print("\n⚙️  General behaviour settings:")
     # Show general settings
-    for setting_name in get_settings_manager().list_all_behaviour_settings():
+    settings = get_settings_manager().list_all_behaviour_settings()
+    behaviour_keys = []
+    for setting_name in settings: # filter for settings that can be toggled
+        try:
+            get_settings_manager().get_setting_enabled(setting_name)
+            behaviour_keys.append(setting_name)
+        except Exception:
+            pass
+
+    for setting_name in behaviour_keys:
         enabled = get_settings_manager().get_setting_enabled(setting_name)
         print(f"   {setting_name.replace("_", " ").capitalize():30} - {'🟢 Enabled' if enabled else '🔴 Disabled'}")
     

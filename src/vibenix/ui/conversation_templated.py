@@ -116,18 +116,8 @@ class ModelPromptManager:
                     if v is not None and v != []
                 }
                 
-                # Special handling for additional_functions parameter
-                prompt_key = template_path.split('/')[-1].replace('.md', '')
-                try:
-                    additional_functions = get_settings_manager().get_prompt_additional_tools(prompt_key)
-                except Exception as e:
-                    raise ValueError(f"Failed to get additional functions for prompt '{prompt_key}', error: {e}")
                 tool_call_collector = template_context.pop('tool_call_collector', None) # TODO
 
-                # Filter out disabled additional functions TODO theres a method for this already
-                disabled_tools = get_settings_manager().get_disabled_tools()
-                additional_functions = [func for func in additional_functions if func.__name__ not in disabled_tools]
-                
                 get_logger().prompt_begin(func.__name__, template_path, 2, template_context)
                 
                 # Load and render the template
@@ -135,6 +125,7 @@ class ModelPromptManager:
                 rendered_prompt = prompt_loader.load(template_path, **template_context)
 
                 # Add additional snippets TODO move to prompt itself
+                prompt_key = template_path.split('/')[-1].replace('.md', '')
                 if get_settings_manager().is_edit_tools_prompt(prompt_key):
                     #if get_settings_manager().get_setting_enabled("2_agents"):
                     #    edit_tools_snippet = get_settings_manager().get_snippet(snippet="feedback")
@@ -156,9 +147,13 @@ class ModelPromptManager:
                     agent = VibenixAgent()
                 
                 functions = get_settings_manager().get_prompt_tools(prompt_key)
+                try:
+                    functions = [get_settings_manager().get_tool_callable(func_name) for func_name in functions]
+                except Exception as e:
+                    raise ValueError(f"Failed to get tool callables for prompt '{prompt_key}': {e}")
+
                 # Add tools to the agent
-                all_functions = (functions or []) + additional_functions
-                for tool_func in all_functions:
+                for tool_func in functions:
                     agent.add_tool(tool_func)
                 
                 try:
@@ -188,8 +183,9 @@ class ModelPromptManager:
                     self.add_iteration_usage(usage)
 
                     # If not using edit_tools, need to extract code and updated flake
-                    from vibenix.tools import EDIT_FUNCTIONS
-                    if get_settings_manager().is_edit_tools_prompt(prompt_key) and (not get_settings_manager().get_setting_enabled("edit_tools") or not any(func in get_settings_manager().get_prompt_tools(prompt_key) for func in EDIT_FUNCTIONS)):
+                    from vibenix.tools import EDIT_TOOLS
+                    if get_settings_manager().is_edit_tools_prompt(prompt_key) and (not get_settings_manager().get_setting_enabled("edit_tools") 
+                      or not any(func.__name__ in get_settings_manager().get_prompt_tools(prompt_key) for func in EDIT_TOOLS)):
                         from vibenix.parsing import extract_updated_code
                         from vibenix.flake import update_flake
                         try:
