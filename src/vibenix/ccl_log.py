@@ -279,7 +279,6 @@ class CCLLogger:
         for tool_name, usage in session_tool_usage.items():
             self.enter_attribute(tool_name)
             self.write_kv("input_tokens", str(usage.prompt_tokens))
-            self.write_kv("cost", f"{usage.calculate_cost():.6f}")
             self.leave_attribute()
         self.leave_attribute()
 

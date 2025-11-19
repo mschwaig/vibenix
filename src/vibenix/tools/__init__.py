@@ -27,12 +27,11 @@ __all__ = [
 ]
 
 # Standard search functions for all prompts that need them
-SEARCH_FUNCTIONS = [
+SEARCH_TOOLS = [
     search_nixpkgs_for_package_semantic,
     search_nixpkgs_for_package_literal,
     search_nix_functions,
     search_nixpkgs_for_file,
     search_nixpkgs_manual_documentation,
 ]
-EDIT_FUNCTIONS = [error_pagination, str_replace, insert_line_after, view]
-ALL_FUNCTIONS = SEARCH_FUNCTIONS + EDIT_FUNCTIONS
+EDIT_TOOLS = [error_pagination, str_replace, insert_line_after, view]

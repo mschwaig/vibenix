@@ -104,7 +104,7 @@ def toggle_tools_menu() -> None:
                 tool = all_tools[idx]
                 tool_name = tool.__name__ if callable(tool) else tool
                 
-                get_settings_manager().toggle_global_tools(tool_name)
+                get_settings_manager().toggle_disabled_tools(tool_name)
             else:
                 print(f"\n❌ Please enter a number between 1 and {len(all_tools)}")
         except ValueError:

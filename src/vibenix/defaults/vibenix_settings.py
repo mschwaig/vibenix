@@ -1,10 +1,10 @@
 """Vibenix settings manager for controlling prompt tools and behavior."""
 
-from typing import Dict, List, Callable, Optional, Any, Union
+from typing import Dict, List, Callable, Optional, Any, Union, Set
+from vibenix.packaging_flow.model_prompts import ALL_PROMPTS
 from vibenix.tools import (
-    SEARCH_FUNCTIONS,
-    EDIT_FUNCTIONS,
-    ALL_FUNCTIONS,
+    SEARCH_TOOLS,
+    EDIT_TOOLS,
     search_nixpkgs_for_package_semantic,
     search_nixpkgs_for_package_literal,
     search_nix_functions,
@@ -15,55 +15,51 @@ from vibenix.tools import (
     view,
     error_pagination,
 )
-
 from vibenix.tools.file_tools import create_source_function_calls
 
-from tempfile import mkdtemp
 
 def get_names(funcs: List[Union[Callable, str]]) -> List[str]:
     return [func.__name__ if callable(func) else func for func in funcs]
+
+from tempfile import mkdtemp
 tempdir = mkdtemp()
 PROJECT_TOOLS = get_names(create_source_function_calls(tempdir, "project_"))
 NIXPKGS_TOOLS = get_names(create_source_function_calls(tempdir, "nixpkgs_"))
-GET_BUILDER_FUNCTIONS = ['get_builder_functions']
+GET_BUILDER_TOOLS = ['get_builder_functions']
 FIND_SIMILAR_BUILDER_PATTERNS = ['find_similar_builder_patterns']
+ADDITIONAL_TOOLS = GET_BUILDER_TOOLS + FIND_SIMILAR_BUILDER_PATTERNS + PROJECT_TOOLS + NIXPKGS_TOOLS
 
-ADDITIONAL_TOOLS = GET_BUILDER_FUNCTIONS + FIND_SIMILAR_BUILDER_PATTERNS + PROJECT_TOOLS + NIXPKGS_TOOLS
 
-
-# TODO ADD EVALUATE PROGRESS
 # Default mapping of prompts to their tools
-DEFAULT_PROMPT_TOOLS: Dict[str, List[Callable]] = {
-    'pick_template': [],
-    'summarize_github': [],
-    'get_feedback': SEARCH_FUNCTIONS,
-    'refine_code': ALL_FUNCTIONS,
-    'fix_build_error': ALL_FUNCTIONS,
-    'fix_hash_mismatch': EDIT_FUNCTIONS,
-    'classify_packaging_failure': [],
-    'analyze_package_failure': SEARCH_FUNCTIONS,
-    'summarize_build': [],
-    'choose_builders': [],
-    'compare_template_builders': [search_nix_functions, search_nixpkgs_manual_documentation]+EDIT_FUNCTIONS,
-}
-DEFAULT_PROMPT_ADD_TOOLS: Dict[str, List[str]] = {
-    'pick_template': [],
-    'summarize_github': [],
-    'get_feedback': get_names(ADDITIONAL_TOOLS),
-    'refine_code': [],
-    'fix_build_error': get_names(ADDITIONAL_TOOLS),
-    'fix_hash_mismatch': [],
-    'classify_packaging_failure': [],
-    'analyze_package_failure': get_names(ADDITIONAL_TOOLS),
-    'summarize_build': get_names(PROJECT_TOOLS),
-    'choose_builders': get_names(PROJECT_TOOLS + NIXPKGS_TOOLS),
-    'compare_template_builders': get_names(PROJECT_TOOLS + NIXPKGS_TOOLS + GET_BUILDER_FUNCTIONS),
-}
+DEFAULT_PROMPT_TOOLS: Dict[str, List[Callable]] = {prompt: [] for prompt in ALL_PROMPTS}
+DEFAULT_PROMPT_TOOLS.update(
+    {
+        'get_feedback': SEARCH_TOOLS,
+        'refine_code': SEARCH_TOOLS + EDIT_TOOLS,
+        'fix_build_error': SEARCH_TOOLS + EDIT_TOOLS,
+        'fix_hash_mismatch': EDIT_TOOLS,
+        'analyze_package_failure': SEARCH_TOOLS,
+        'compare_template_builders': [search_nix_functions, search_nixpkgs_manual_documentation]+EDIT_TOOLS,
+    }
+)
+# Just strings, get callables at runtime
+DEFAULT_PROMPT_ADD_TOOLS: Dict[str, Set[str]] = {prompt: set() for prompt in ALL_PROMPTS}
+DEFAULT_PROMPT_ADD_TOOLS.update(
+    {
+        'get_feedback': {'_additional_tools'},
+        'fix_build_error': {'_additional_tools'},
+        'analyze_package_failure': {'_additional_tools'},
+        'summarize_build': {'_project_tools'},
+        'choose_builders': {'_project_tools', '_nixpkgs_tools'},
+        'compare_template_builders': {'_project_tools', '_nixpkgs_tools', 'get_builder_functions'},
+    }
+)
+
 
 DEFAULT_VIBENIX_SETTINGS = {
     # Individual tool toggles (disable specific tools globally)
     # Empty: All tools enabled by default 
-    "tools": [],
+    "disabled_tools": [],
     
     # Per-prompt tool configuration
     # Values are lists of function objects
@@ -72,7 +68,6 @@ DEFAULT_VIBENIX_SETTINGS = {
     
     # General behavior, misc
     "behaviour": {
-        # Enable or disable progress_evaluation
         "progress_evaluation": True,
         "build_summary": True,
         "compare_template_builders": True,
@@ -80,7 +75,6 @@ DEFAULT_VIBENIX_SETTINGS = {
             "enabled": True,
             "iterations": 3,
         },
-        # Enable or disable edit tools
         "edit_tools": True,
         # 2 Agents edit (planning + implementation)
         #"2_agents": False,
@@ -92,34 +86,50 @@ DEFAULT_VIBENIX_SETTINGS = {
         }
     }
 }
-# TODO create empty things if not present in config
+
 
 class VibenixSettingsManager:
     """Manages vibenix settings and resolves prompt tools."""
     
-    def __init__(self, settings: Optional[Dict[str, Any]] = None):
+    def __init__(self, settings: Optional[Dict[str, Any]] = {}):
         # Merge provided settings with DEFAULT_VIBENIX_SETTINGS in one line
-        self.settings = DEFAULT_VIBENIX_SETTINGS.copy()
-        if settings:
-            self.settings.update(settings)
+        self.settings = deep_merge(DEFAULT_VIBENIX_SETTINGS.copy(), settings)
         self._tool_name_map = self._build_tool_name_map()
-    
 
-    # EDIT TOOLS ====
+
     def _build_tool_name_map(self) -> Dict[str, Callable]:
         """Build a mapping from tool names to actual functions."""
         tool_map = {}
-        for func in ALL_FUNCTIONS:
+        for func in SEARCH_TOOLS + EDIT_TOOLS:
             tool_map[func.__name__] = func
-        for func in ADDITIONAL_TOOLS:
+        for func in ADDITIONAL_TOOLS: # just strings, need to initialize afterwards
             tool_map[func] = None
+
+        # nickname entries for groups of tools
+        tool_map.update({
+            '_search_tools': SEARCH_TOOLS,
+            '_edit_tools': EDIT_TOOLS,
+            '_project_tools': None,
+            '_nixpkgs_tools': None,
+            '_additional_tools': None,
+        })
         return tool_map
 
     def initialize_additional_tools(self, tools: List[Callable]):
         """Initialize the additional tools in the tool name map."""
+        self._tool_name_map['_project_tools'] = []
+        self._tool_name_map['_nixpkgs_tools'] = []
+        self._tool_name_map['_additional_tools'] = []
+
         for func in tools:
             self._tool_name_map[func.__name__] = func
+            if func.__name__ in PROJECT_TOOLS:
+                self._tool_name_map['_project_tools'].append(func)
+            elif func.__name__ in NIXPKGS_TOOLS:
+                self._tool_name_map['_nixpkgs_tools'].append(func)
+            self._tool_name_map['_additional_tools'].append(func)
     
+
     def get_snippet(self, prompt: str = "", snippet: str = "") -> str:
         """Get a snippet to use in the prompt template."""
 
@@ -134,7 +144,6 @@ class VibenixSettingsManager:
         else:
             return self.settings.get("behaviour", {}).get("snippets", {}).get("extract", "")
 
-
     def is_edit_tools_prompt(self, prompt_name: str) -> bool:
         """Check if a prompt is an edit tools prompt (has code edit tools).
         
@@ -146,7 +155,7 @@ class VibenixSettingsManager:
         """
         prompt_tools = DEFAULT_PROMPT_TOOLS.get(prompt_name, [])
 
-        if any(tool in EDIT_FUNCTIONS for tool in prompt_tools):
+        if any(tool in EDIT_TOOLS for tool in prompt_tools):
             return True
         return False
 
@@ -248,7 +257,7 @@ class VibenixSettingsManager:
         """
         enabled = []
         # Get list of disabled tool names
-        disabled_tool_names = self.settings.get("tools", [])
+        disabled_tool_names = self.settings.get("disabled_tools", [])
         
         for tool in tools:
             # Handle both function objects and names
@@ -259,9 +268,11 @@ class VibenixSettingsManager:
                 # It's a string name, resolve it
                 tool_name = tool
                 tool_func = self._tool_name_map.get(tool_name)
-                if tool_func is None:
-                    print(f"Warning: Unknown tool '{tool_name}'")
-                    continue
+
+            if tool_name not in self._tool_name_map:
+                raise ValueError(f"Tool '{tool_name}' is not recognized.")
+            if tool_func is None:
+                raise ValueError(f"Tool '{tool_name}' has not been initialized.")
             
             # Include tool only if it's NOT in the disabled list
             if tool_name not in disabled_tool_names:
@@ -286,21 +297,21 @@ class VibenixSettingsManager:
         Returns:
             List of disabled tool names
         """
-        return self.settings.get("tools", [])    
+        return self.settings.get("disabled_tools", [])    
 
-    def toggle_global_tools(self, tool: Union[Callable, str]):
+    def toggle_disabled_tools(self, tool: Union[Callable, str]):
         """Disable a specific tool globally.
         
         Args:
             tool: The tool function or its name to disable
         """
         tool_name = tool.__name__ if callable(tool) else tool
-        if "tools" not in self.settings:
-            self.settings["tools"] = []
-        if tool_name not in self.settings["tools"]:
-            self.settings["tools"].append(tool_name)
+        if "disabled_tools" not in self.settings:
+            self.settings["disabled_tools"] = []
+        if tool_name not in self.settings["disabled_tools"]:
+            self.settings["disabled_tools"].append(tool_name)
         else:
-            self.settings["tools"].remove(tool_name)
+            self.settings["disabled_tools"].remove(tool_name)
 
     def set_disabled_tools(self, tools: List[Union[Callable, str]]):
         """Set the list of globally disabled tools.
@@ -308,12 +319,12 @@ class VibenixSettingsManager:
         Args:
             tools: List of tool functions or their names to disable
         """
-        all_tool_names = [func.__name__ for func in ALL_FUNCTIONS]
+        all_tool_names = [func.__name__ for func in ALL_TOOLS]
         disabled_tool_names = [tool.__name__ if callable(tool) else tool for tool in tools]
         if any(name not in all_tool_names for name in disabled_tool_names):
             raise ValueError(f"One or more tool names are invalid in {disabled_tool_names}.")
 
-        self.settings["tools"] = disabled_tool_names
+        self.settings["disabled_tools"] = disabled_tool_names
     
 
     # Prompt tools
@@ -321,7 +332,7 @@ class VibenixSettingsManager:
         """Get a list of all configured prompt names.
         
         Returns:
-            List of prompt names
+            List of prompt names (managed by settings)
         """
         return list(self.settings.get("prompt_tools", {}).keys())
     
@@ -475,7 +486,7 @@ def settings_from_json_format(json_settings: Dict[str, Any]) -> Dict[str, Any]:
     """
     # Build tool name map
     tool_name_map = {}
-    for func in ALL_FUNCTIONS:
+    for func in ALL_TOOLS:
         tool_name_map[func.__name__] = func
     
     settings = json_settings.copy()
@@ -521,3 +532,18 @@ def load_settings(settings: Dict[str, Any]):
     """
     global _settings_manager
     _settings_manager = VibenixSettingsManager(settings)
+
+
+def deep_merge(original, update):
+    """Recursively merge nested dictionaries"""
+    result = original.copy()
+    
+    for key, value in update.items():
+        if key not in result:
+            raise KeyError(f"Key '{key}' not found in original dictionary during deep merge.")
+        elif (isinstance(result[key], dict) and 
+            isinstance(value, dict)):
+            result[key] = deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
