@@ -11,6 +11,7 @@ from typing import TypeVar, Union, get_origin, get_args, Any, Optional, List, Ca
 from functools import wraps
 from vibenix.ccl_log import get_logger
 from vibenix.ui.conversation import (
+    ModelCodeResponse,
     Usage,
     Message,
     Actor,
@@ -88,23 +89,21 @@ class ModelPromptManager:
             functions: Optional list of functions to make available to the model
         """
         def decorator(func: Callable[..., T]) -> Callable[..., T]:
-            # Get return type hint
-            type_hints = get_type_hints(func)
-            return_type = type_hints.get('return', type(None))
-
-            prompt_key = template_path.split('/')[-1].replace('.md', '')
-            if get_settings_manager().is_edit_tools_prompt(prompt_key) and get_settings_manager().get_setting_enabled("edit_tools"):
-                return_type = type(None)
-
-            # Determine output type and whether to use streaming
-            is_streaming = return_type == str
-            is_enum = inspect.isclass(return_type) and issubclass(return_type, Enum)
-            is_structured = return_type not in [str, type(None)]
-            
-            @wraps(func)
             def wrapper(*args, **kwargs) -> T:
                 adapter = get_ui_adapter()
-                
+
+                type_hints = get_type_hints(func)
+                return_type = type_hints.get('return', type(None))
+                prompt_key = template_path.split('/')[-1].replace('.md', '')
+                if get_settings_manager().is_edit_tools_prompt(prompt_key):
+                    if get_settings_manager().get_setting_enabled("edit_tools"):
+                        return_type = type(None)
+                    # Else, keep the original class return type
+                # Determine output type and whether to use streaming
+                is_streaming = return_type == str
+                is_enum = inspect.isclass(return_type) and issubclass(return_type, Enum)
+                is_structured = return_type not in [str, type(None)]
+
                 # Get function signature to map args to param names
                 sig = inspect.signature(func)
                 bound_args = sig.bind(*args, **kwargs)
@@ -125,11 +124,8 @@ class ModelPromptManager:
                 rendered_prompt = prompt_loader.load(template_path, **template_context)
 
                 # Add additional snippets TODO move to prompt itself
-                prompt_key = template_path.split('/')[-1].replace('.md', '')
                 if get_settings_manager().is_edit_tools_prompt(prompt_key):
-                    #if get_settings_manager().get_setting_enabled("2_agents"):
-                    #    edit_tools_snippet = get_settings_manager().get_snippet(snippet="feedback")
-                    #else:
+                    # Add a snippet to the prompt about how to reply with the updated code
                     edit_tools_snippet = get_settings_manager().get_snippet(prompt_key)
                     rendered_prompt += "\n\n" + edit_tools_snippet
                 
@@ -160,15 +156,18 @@ class ModelPromptManager:
                     # Run the agent
                     if is_streaming:
                         # For string returns, use streaming
-                        response, usage = agent.run_stream(rendered_prompt)
-                        result = response
+                        result, usage = agent.run_stream(rendered_prompt)
                         get_logger().reply_chunk_text(0, result, 4)
                     else:
                         # For non-streaming (structured outputs), just run normally
-                        response, usage = agent.run(rendered_prompt)
+                        result, usage = agent.run(rendered_prompt)
                         
-                        # Pydantic-ai should return the structured type directly
-                        result = response
+                        if return_type == ModelCodeResponse:
+                            from vibenix.flake import update_flake
+                            if isinstance(result, ModelCodeResponse):
+                                result = result.code
+                                update_flake(result)
+                        
                         adapter.show_message(Message(Actor.MODEL, str(result)))
                         if is_structured:
                             if is_enum:
@@ -182,19 +181,6 @@ class ModelPromptManager:
                     # Track usage for cost calculations
                     self.add_iteration_usage(usage)
 
-                    # If not using edit_tools, need to extract code and updated flake
-                    from vibenix.tools import EDIT_TOOLS
-                    if get_settings_manager().is_edit_tools_prompt(prompt_key) and (not get_settings_manager().get_setting_enabled("edit_tools") 
-                      or not any(func.__name__ in get_settings_manager().get_prompt_tools(prompt_key) for func in EDIT_TOOLS)):
-                        from vibenix.parsing import extract_updated_code
-                        from vibenix.flake import update_flake
-                        try:
-                            code = extract_updated_code(result)
-                            update_flake(code)
-                        except ValueError as e:
-                            print("Failed to extract updated code from model response.")
-                            pass
-
                     return result
                     
                 except Exception as e:
@@ -204,7 +190,7 @@ class ModelPromptManager:
 
                     # Proceed to next iteration, if problem persists, the loop will stop anyway
                     # If we NEED a result, then no can do. Re-raise
-                    if return_type != type(None):
+                    if return_type not in {None, ModelCodeResponse}:
                         raise e
                     return None
             

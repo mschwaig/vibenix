@@ -7,6 +7,7 @@ from enum import Enum
 from dataclasses import dataclass
 from datetime import datetime
 from vibenix.ccl_log import get_logger
+from pydantic import BaseModel
 
 # Type variable for function return types
 T = TypeVar('T')
@@ -166,6 +167,10 @@ def coordinator_progress(message: str):
     adapter = get_ui_adapter()
     adapter.show_progress(message)
 
+
+class ModelCodeResponse(BaseModel):
+    """Model response with full updated packaging code."""
+    code: str
 
 # Usage class for tracking tokens
 @dataclass

@@ -8,6 +8,7 @@ from typing import List, Optional
 
 from vibenix.template.template_types import TemplateType
 from vibenix.ui.conversation_templated import get_model_prompt_manager
+from vibenix.ui.conversation import ModelCodeResponse
 from vibenix.tools import (
     search_nixpkgs_for_package_semantic,
     search_nixpkgs_for_package_literal,
@@ -77,7 +78,7 @@ def refine_code(
     feedback: str,
     project_page: Optional[str] = None,
     template_notes: Optional[str] = None,
-) -> str:
+) -> ModelCodeResponse:
     """Refine a nix package based on feedback."""
     ...
 
@@ -94,13 +95,13 @@ def fix_build_error(
     is_syntax_error: bool = False,
     attempted_tool_calls: List = [],
     tool_call_collector: List = None
-) -> str:
+) -> ModelCodeResponse:
     """Fix a build error in Nix code."""
     ...
 
 
 @ask_model_prompt('error_fixing/fix_hash_mismatch.md')
-def fix_hash_mismatch(code: str, error: str) -> str:
+def fix_hash_mismatch(code: str, error: str) -> ModelCodeResponse:
     """Fix hash mismatch errors in Nix code."""
     ...
 
@@ -181,7 +182,7 @@ def choose_builders(
 def compare_template_builders(
     initial_code: str,
     builder_combinations_info: str,
-    project_page: Optional[str] = None) -> str:
+    project_page: Optional[str] = None) -> ModelCodeResponse:
     """Compare the template builders with ones from choose_builders."""
     ...
 

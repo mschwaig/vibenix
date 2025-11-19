@@ -39,16 +39,16 @@ def load_saved_settings() -> Optional[Dict[str, Any]]:
         return settings_from_json_format(json_settings)
     except Exception as e:
         logger.warning(f"Failed to load settings: {e}")
-        return None
+        raise e
 
 
-def save_settings_to_file():
+def save_settings_to_file(diff_only: bool = True) -> None:
     """Save settings to file."""
     try:
         settings_path = os.path.expanduser("~/.vibenix/vibenix_settings.json")
         os.makedirs(os.path.dirname(settings_path), exist_ok=True)
 
-        get_settings_manager().save_settings(settings_path)
+        get_settings_manager().save_settings(settings_path, diff_only=diff_only)
         
         logger.info(f"Settings saved to {settings_path}")
         print(f"\n✅ Settings saved to {settings_path}")
@@ -89,7 +89,7 @@ def toggle_tools_menu() -> None:
         show_tool_list(all_tools, disabled_tools, "\nAvailable Tools:")
         
         print("\n" + "-" * 60)
-        print("Enter tool number to toggle, 'c' to clear all, or 'q' to finish")
+        print("Enter tool number to toggle, 'c' to clear all, 'a' to disable all, or 'q' to finish")
         
         choice = input("\nYour choice: ").strip().lower()
         
@@ -100,6 +100,12 @@ def toggle_tools_menu() -> None:
         elif choice == 'c':
             get_settings_manager().set_disabled_tools([])
             print("\n✅ All tools enabled")
+            continue
+
+        elif choice == 'a':
+            all_tool_names = [tool.__name__ if callable(tool) else tool for tool in all_tools]
+            get_settings_manager().set_disabled_tools(all_tool_names)
+            print("\n✅ All tools disabled")
             continue
         
         try:
@@ -112,7 +118,7 @@ def toggle_tools_menu() -> None:
             else:
                 print(f"\n❌ Please enter a number between 1 and {len(all_tools)}")
         except ValueError:
-            print("\n❌ Please enter a valid number, 'c', or 'q'")
+            print("\n❌ Please enter a valid number, 'c', 'a', or 'q'")
 
 
 def configure_prompt_tools_menu() -> None:
@@ -126,7 +132,7 @@ def configure_prompt_tools_menu() -> None:
         print("\nSelect a prompt to configure its tools:")
         
         for i, prompt_name in enumerate(prompt_names, 1):
-            tools = get_settings_manager().get_prompt_tools(prompt_name)
+            tools = get_settings_manager().get_prompt_tools(prompt_name, filter_disabled=False)
             tool_count = len(tools) if isinstance(tools, list) else 0
             print(f"{i:2}. {prompt_name:30} ({tool_count} tools)")
         
@@ -154,7 +160,7 @@ def configure_single_prompt_tools(prompt_name: str) -> None:
     selected_tools = set()
     selected_additional_tools = set()
     
-    selected_tools = set(get_settings_manager().get_prompt_tools(prompt_name))
+    selected_tools = set(get_settings_manager().get_prompt_tools(prompt_name, filter_disabled=False))
     all_tools = ALL_TOOLS.copy()
     
     while True:
@@ -187,7 +193,7 @@ def configure_single_prompt_tools(prompt_name: str) -> None:
         choice = input("\nYour choice: ").strip().lower()
         
         if choice == 'q':
-            get_settings_manager().set_prompt_tools(prompt_name, selected_tools)
+            get_settings_manager().set_prompt_tools(prompt_name, list(selected_tools))
             return
         
         elif choice == 'search':
@@ -315,7 +321,7 @@ def view_current_settings():
     prompts = get_settings_manager().list_all_prompts()
     print(f"\n📋 Prompt configurations ({len(prompts)} prompts):")
     for prompt_name in sorted(prompts):
-        tools = get_settings_manager().get_prompt_tools(prompt_name)
+        tools = get_settings_manager().get_prompt_tools(prompt_name, filter_disabled=False)
         tool_count = len(tools) if isinstance(tools, list) else 0
         print(f"   {prompt_name:30} - {tool_count} tools")
     
@@ -387,9 +393,14 @@ def show_vibenix_settings_terminal() -> bool:
             view_current_settings()
         
         elif choice == '6':
-            # Save and exit
-            save_settings_to_file()
-            print("\n✅ Settings saved and applied!")
+            # Save full settings or just diff from defaults
+            confirm = input("\n💾 Save only settings diff from defaults? (Y/n): ").strip().lower()
+            if confirm != 'n':
+                save_settings_to_file(diff_only=True)
+                print("\n✅ Settings diff saved!")
+            else:
+                save_settings_to_file(diff_only=False)
+                print("\n✅ Full settings saved!")
             return True
         
         elif choice == '7' or choice == 'q':

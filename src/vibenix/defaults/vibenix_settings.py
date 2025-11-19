@@ -4,15 +4,8 @@ from typing import Dict, List, Callable, Optional, Any, Union, Set
 from vibenix.tools import (
     SEARCH_TOOLS,
     EDIT_TOOLS,
-    search_nixpkgs_for_package_semantic,
-    search_nixpkgs_for_package_literal,
     search_nix_functions,
-    search_nixpkgs_for_file,
     search_nixpkgs_manual_documentation,
-    str_replace,
-    insert_line_after,
-    view,
-    error_pagination,
 )
 from vibenix.tools.file_tools import create_source_function_calls
 
@@ -59,14 +52,6 @@ GET_BUILDER_TOOLS = ['get_builder_functions']
 FIND_SIMILAR_BUILDER_PATTERNS = ['find_similar_builder_patterns']
 ADDITIONAL_TOOLS = GET_BUILDER_TOOLS + FIND_SIMILAR_BUILDER_PATTERNS + PROJECT_TOOLS + NIXPKGS_TOOLS
 ALL_TOOLS = get_names(SEARCH_TOOLS + EDIT_TOOLS) + ADDITIONAL_TOOLS
-
-TOOL_GROUPS = {
-    '_search_tools': SEARCH_TOOLS,
-    '_edit_tools': EDIT_TOOLS,
-    '_project_tools': PROJECT_TOOLS,
-    '_nixpkgs_tools': NIXPKGS_TOOLS,
-    '_additional_tools': ADDITIONAL_TOOLS,
-}
 
 ALL_PROMPTS = [
     "pick_template",
@@ -129,13 +114,12 @@ DEFAULT_VIBENIX_SETTINGS = {
             "iterations": 3,
         },
         "edit_tools": True,
-        # 2 Agents edit (planning + implementation)
-        #"2_agents": False,
         # Snippets to add to prompts dynamically
         "snippets": {
             "tool": "To perform each change to the code, use the text editor tools: [<TOOLS>].",
-            "extract": "Your response should contain the full updated packaging code, wrapped like so:\n```nix\n...\n```.",
-            "feedback": "Your response should contain the list of concrete changes you would make to the packaging code. Be specific."
+            "extract": "Please respond with the full updated packaging code, wrapped like so:\n```nix\n...\n```.",
+            "object": "Please respond with a valid ModelCodeResponse object containing the full updated packaging code.",
+            "feedback": "Please respond with the list of concrete changes you would make to the packaging code. Be specific."
         }
     }
 }
@@ -157,31 +141,12 @@ class VibenixSettingsManager:
             tool_map[func.__name__] = func
         for func in ADDITIONAL_TOOLS: # just strings, need to initialize afterwards
             tool_map[func] = None
-
-        # nickname entries for groups of tools
-        tool_map.update({
-            '_search_tools': SEARCH_TOOLS,
-            '_edit_tools': EDIT_TOOLS,
-            '_project_tools': None,
-            '_nixpkgs_tools': None,
-            '_additional_tools': None,
-        })
         return tool_map
 
     def initialize_additional_tools(self, tools: List[Callable]):
         """Initialize the additional tools in the tool name map."""
-        self._tool_name_map['_project_tools'] = []
-        self._tool_name_map['_nixpkgs_tools'] = []
-        self._tool_name_map['_additional_tools'] = []
-
         for func in tools:
             self._tool_name_map[func.__name__] = func
-            if func.__name__ in PROJECT_TOOLS:
-                self._tool_name_map['_project_tools'].append(func)
-            elif func.__name__ in NIXPKGS_TOOLS:
-                self._tool_name_map['_nixpkgs_tools'].append(func)
-            self._tool_name_map['_additional_tools'].append(func)
-    
 
     def get_snippet(self, prompt: str = "", snippet: str = "") -> str:
         """Get a snippet to use in the prompt template."""
@@ -195,7 +160,7 @@ class VibenixSettingsManager:
             enabled_edit_tools = self._filter_enabled_tools(tools)
             return snippet.replace("<TOOLS>", ", ".join([f_name for f_name in enabled_edit_tools]))    
         else:
-            return self.settings.get("behaviour", {}).get("snippets", {}).get("extract", "")
+            return self.settings.get("behaviour", {}).get("snippets", {}).get("object", "")
 
     def is_edit_tools_prompt(self, prompt_name: str) -> bool:
         """Check if a prompt is an edit tools prompt (has code edit tools).
@@ -407,11 +372,12 @@ class VibenixSettingsManager:
 
         self.settings["prompt_tools"][prompt_name] = tool_spec
 
-    def get_prompt_tools(self, prompt_name: str) -> List[str]:
+    def get_prompt_tools(self, prompt_name: str, filter_disabled: bool=True) -> List[str]:
         """Get the list of tool functions for a specific prompt.
         
         Args:
             prompt_name: The name of the prompt
+            filter_disabled: Whether to filter out disabled tools
 
         Returns:
             List of tool functions that should be available to this prompt
@@ -421,17 +387,23 @@ class VibenixSettingsManager:
         tool_spec = prompt_tools_config.get(prompt_name, [])
         
         # Filter based on enabled/disabled settings
-        return self._filter_enabled_tools(tool_spec)
+        if filter_disabled:
+            return self._filter_enabled_tools(tool_spec)
+        else:
+            return tool_spec
 
     
-    def save_settings(self, filepath: str):
+    def save_settings(self, filepath: str, diff_only: bool=True):
         """Save current settings to a JSON file.
         
         Args:
             filepath: Path to the JSON file to save settings
         """
         import json
-        settings_diff = deep_diff(DEFAULT_VIBENIX_SETTINGS, self.settings)
+        if diff_only:
+            settings_diff = deep_diff(DEFAULT_VIBENIX_SETTINGS, self.settings)
+        else:
+            settings_diff = self.settings
 
         with open(filepath, "w") as f:
             json.dump(settings_to_json_format(settings_diff), f, indent=4)
@@ -471,15 +443,12 @@ def settings_from_json_format(json_settings: Dict[str, Any]) -> Dict[str, Any]:
     if "prompt_tools" in settings:
         prompt_tools = {}
         for prompt_name, tool_names in settings["prompt_tools"].items():
-            for name in tool_names:
-                if name not in ALL_TOOLS:
-                    if name in TOOL_GROUPS:
-                        resolved_tools = get_names(TOOL_GROUPS[name])
-                        prompt_tools.setdefault(prompt_name, []).extend(resolved_tools)
-                    else:
+            if isinstance(tool_names, list):
+                for name in tool_names:
+                    if name not in ALL_TOOLS:
                         raise ValueError(f"Tool name '{name}' in prompt '{prompt_name}' is not recognized.")
-                else:
-                    prompt_tools.setdefault(prompt_name, []).append(name)
+                    else:
+                        prompt_tools.setdefault(prompt_name, []).append(name)
             else:
                 raise ValueError(f"Tool specification for prompt '{prompt_name}' must be a list.")
         settings["prompt_tools"] = prompt_tools
@@ -508,10 +477,3 @@ def load_settings(settings: Dict[str, Any]):
     """
     global _settings_manager
     _settings_manager = VibenixSettingsManager(settings)
-
-
-def resolve_tool_group(name: str) -> List[str]:
-    """Resolve a tool group nickname to actual tool names."""
-    if name not in TOOL_GROUPS:
-        raise ValueError(f"Tool group '{name}' is not recognized.")
-    return get_names(TOOL_GROUPS[name])
