@@ -304,7 +304,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     coordinator_progress("Testing the initial build...")
     best = execute_build_and_add_to_stack(initial_code)
 
-    ccl_logger.log_initial_build(view_package_contents(line_numbers=True), best.result)
+    ccl_logger.log_initial_build(view_package_contents(), best.result)
     ccl_logger.enter_attribute("iterate")
     
     iteration = 0
@@ -572,4 +572,8 @@ def run_packaging_flow(output_dir=None, project_url=None, revision=None, fetcher
         print(f"Total API cost: ${get_model_prompt_manager().get_session_cost():.4f}")
     except Exception as e:
         coordinator_error(f"Unexpected error: {e}")
+        from vibenix.ccl_log import get_logger
+        get_logger().log_total_tool_cost()
+        get_logger().log_session_end(signal=None, total_cost=get_model_prompt_manager().get_session_cost())
+        close_logger()
         raise

@@ -3,7 +3,7 @@
 import json
 import os
 
-# Support a few possible top-level shapes; fall back to the whole file if keys differ
+
 model_settings = os.path.join(os.path.dirname(__file__), "model_settings.json")
 with open(model_settings, "r") as f:
     DEFAULT_MODEL_SETTINGS = json.load(f)

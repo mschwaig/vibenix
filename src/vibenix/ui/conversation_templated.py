@@ -154,7 +154,7 @@ class ModelPromptManager:
                 
                 try:
                     # Run the agent
-                    if is_streaming:
+                    if is_streaming: # TODO remove when possible
                         # For string returns, use streaming
                         result, usage = agent.run_stream(rendered_prompt)
                         get_logger().reply_chunk_text(0, result, 4)
@@ -187,12 +187,7 @@ class ModelPromptManager:
                     adapter.show_message(Message(Actor.MODEL, f"Error: {str(e)}"))
                     get_logger().reply_chunk_text(0, f"Error: {str(e)}", 4)
                     get_logger().prompt_end(2)
-
-                    # Proceed to next iteration, if problem persists, the loop will stop anyway
-                    # If we NEED a result, then no can do. Re-raise
-                    if return_type not in {None, ModelCodeResponse}:
-                        raise e
-                    return None
+                    raise e
             
             return wrapper
         return decorator

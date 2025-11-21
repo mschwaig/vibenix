@@ -14,6 +14,9 @@ def deep_merge(original, update):
     """Recursively merge nested dictionaries"""
     result = original.copy()
     
+    missing_bools = [key for key in result if isinstance(result[key], bool) and key not in update]
+    if missing_bools:
+        raise KeyError(f"Missing boolean keys in update during deep merge: {missing_bools}")
     for key, value in update.items():
         if key not in result or (type(result[key]) != type(value)):
             raise KeyError(f"Key '{key}' with type {type(result[key])} not found in original dictionary during deep merge.")
@@ -25,19 +28,20 @@ def deep_merge(original, update):
     return result
 
 def deep_diff(original, updated):
-    """Recursively compare nested dictionaries and only keep differences"""
+    """Recursively compare nested dictionaries and only keep differences.
+    Both dictionaries should have the same entries and matching types."""
     diff = {}
 
     for key, value in updated.items():
         if key not in original:
-            diff[key] = value
+            raise KeyError(f"Key '{key}' not found in original dictionary during deep diff.")
         elif (type(original[key]) != type(value)):
             raise ValueError(f"Type mismatch/collision for key '{key}': {type(original[key])} vs {type(value)}")
         elif isinstance(value, dict) and isinstance(original[key], dict):
             nested_diff = deep_diff(original[key], value)
             if nested_diff:
                 diff[key] = nested_diff
-        elif value != original[key]:
+        elif value != original[key] or isinstance(value, bool):
             diff[key] = value
     return diff
 
@@ -135,18 +139,21 @@ class VibenixSettingsManager:
 
 
     def _build_tool_name_map(self) -> Dict[str, Callable]:
-        """Build a mapping from tool names to actual functions."""
+        """Build a mapping from tool names to actual functions/callables."""
+        from vibenix.agent import tool_wrapper
+
         tool_map = {}
         for func in SEARCH_TOOLS + EDIT_TOOLS:
-            tool_map[func.__name__] = func
+            tool_map[func.__name__] = tool_wrapper(func)
         for func in ADDITIONAL_TOOLS: # just strings, need to initialize afterwards
             tool_map[func] = None
         return tool_map
 
     def initialize_additional_tools(self, tools: List[Callable]):
         """Initialize the additional tools in the tool name map."""
+        from vibenix.agent import tool_wrapper
         for func in tools:
-            self._tool_name_map[func.__name__] = func
+            self._tool_name_map[func.__name__] = tool_wrapper(func)
 
     def get_snippet(self, prompt: str = "", snippet: str = "") -> str:
         """Get a snippet to use in the prompt template."""

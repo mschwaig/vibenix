@@ -28,7 +28,7 @@ def get_nixpkgs_source_path() -> str:
         raise RuntimeError(f"Failed to get nixpkgs source path: {e}")
 
 
-@log_function_call("find_builder_functions", do_print=False)
+@log_function_call("find_builder_functions")
 def get_builder_functions() -> List[str]:
     """Returns the list of all builder functions in nixpkgs."""
     print("📞 Function called: get_builder_functions")

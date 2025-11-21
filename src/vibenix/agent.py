@@ -26,96 +26,27 @@ _global_failed_messages = None
 
 class VibenixAgent:
     """Main agent for vibenix using pydantic-ai."""
-    def __init__(self, instructions: str = None, output_type: type = None, ):
+    def __init__(self, output_type: type = None):
         """Initialize the agent with optional custom instructions and output type."""
         self.model = get_model()
-        default_instructions = "You are a software packaging expert who can build any project using the Nix programming language."
         
         # Only pass output_type if it's not None
         if output_type is not None:
             self.agent = Agent(
                 model=self.model,
-                #instructions=instructions or default_instructions,
                 output_type=output_type,
             )
         else:
             self.agent = Agent(
                 model=self.model,
-                #instructions=instructions or default_instructions,
             )
         
-        self._tools = []
         self._output_type = output_type  # Store output type for later checks
     
-    # Tool wrapper that receives run context and tracks usage for each tool call
     def add_tool(self, func: Callable) -> None:
-        """Add a tool to the agent with usage tracking.
-        
-        Args:
-            func: The tool function to add. Can accept RunContext as first parameter.
-        """
-        # Check if the function already accepts RunContext as first parameter
-        try:
-            sig = inspect.signature(func)
-            params = list(sig.parameters.values())
-            
-            # If function already has ctx: RunContext parameter, use it directly
-            if params and params[0].name == 'ctx':
-                # Function already has RunContext, just register it
-                self.agent.tool(func, sequential=True)
-                self._tools.append(func)
-                return
-        except (ValueError, TypeError):
-            # If we can't inspect the signature, fall through to wrapping
-            pass
-        
-        # Create a wrapper that preserves the original signature
-        # This is necessary so pydantic-ai can generate proper JSON schema
-        sig = inspect.signature(func)
-        
-        # Create new parameters list with ctx as first parameter
-        new_params = [
-            inspect.Parameter('ctx', inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=RunContext[None])
-        ]
-        new_params.extend(sig.parameters.values())
-        
-        # Create new signature
-        new_sig = sig.replace(parameters=new_params)
-        
-        # Create wrapper function with the new signature
-        def create_wrapper(original_func):
-            def wrapper(ctx: RunContext[None], *args, **kwargs):
-                """Wrapper that tracks tool usage via RunContext."""
-                from vibenix.ui.conversation_templated import get_model_prompt_manager
-
-                # Call the original function and get the result
-                result = original_func(*args, **kwargs)
-
-                # Estimate tokens from result
-                import tiktoken
-                encoder = tiktoken.encoding_for_model("gpt-4-1106-preview")
-                tool_in = len(encoder.encode(str(result)))
-                
-                get_model_prompt_manager().add_session_tool_usage(original_func.__name__, prompt=tool_in)
-                return result
-            
-            # Copy metadata from original function
-            wrapper.__name__ = original_func.__name__
-            wrapper.__doc__ = original_func.__doc__ or f"Wrapper for {original_func.__name__}"
-            wrapper.__signature__ = new_sig
-            wrapper.__annotations__ = {
-                'ctx': RunContext[None],
-                **{k: v for k, v in original_func.__annotations__.items()},
-                'return': original_func.__annotations__.get('return', Any)
-            }
-            
-            return wrapper
-        
-        wrapped = create_wrapper(func)
-        
-        # Register the wrapped function
-        self.agent.tool(wrapped, sequential=True)
-        self._tools.append(func)
+        # If RunContext needed, use agent.tool()
+        # Otherwise, need to add or inject RunContext[<deps-type>] into each tool   
+        self.agent.tool_plain(func, sequential=True)
     
     
     @retry(
@@ -304,8 +235,7 @@ def _capture_failed_usage_before_retry(retry_state, failed_messages=None):
                     
                     from vibenix.ui.conversation_templated import model_prompt_manager
                     model_prompt_manager.add_iteration_usage(estimated_usage)
-            # TODO reset agent usage
-                
+
     except Exception as e:
         print(f"Could not capture failed usage before retry: {e}")
         # Don't let usage tracking errors break the retry flow
@@ -313,3 +243,24 @@ def _capture_failed_usage_before_retry(retry_state, failed_messages=None):
         exception = retry_state.outcome.exception()
         if isinstance(exception, RetryError):
             raise exception
+
+
+def tool_wrapper(original_func):
+    """Decorator to wrap tool functions for usage tracking."""
+    @wraps(original_func)
+    def wrapper(*args, **kwargs):
+        """Wrapper to track tool usage (currently quite limited)."""
+        from vibenix.ui.conversation_templated import get_model_prompt_manager
+
+        # Call the original function and get the result
+        result = original_func(*args, **kwargs)
+
+        # Estimate tokens from result
+        import tiktoken
+        encoder = tiktoken.encoding_for_model("gpt-4-1106-preview")
+        tool_in = len(encoder.encode(str(result)))
+        
+        get_model_prompt_manager().add_session_tool_usage(original_func.__name__, prompt=tool_in)
+        return result
+
+    return wrapper

@@ -126,7 +126,6 @@ def run_terminal_ui(output_dir=None, project_url=None, revision=None, fetcher=No
             logger.error("No saved model configuration found. Please run interactively first to configure.")
             sys.exit(1)
 
-        print("TESTE")
         ensure_settings_configured() # Vibenix settings
 
         # Initialize and log model configuration once

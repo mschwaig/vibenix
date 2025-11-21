@@ -393,11 +393,11 @@ def show_vibenix_settings_terminal() -> bool:
             view_current_settings()
         
         elif choice == '6':
-            # Save full settings or just diff from defaults
-            confirm = input("\n💾 Save only settings diff from defaults? (Y/n): ").strip().lower()
+            # Save full settings or compacted settings
+            confirm = input("\n💾 Save as compacted settings? (Y/n): ").strip().lower()
             if confirm != 'n':
                 save_settings_to_file(diff_only=True)
-                print("\n✅ Settings diff saved!")
+                print("\n✅ Compacted settings saved!")
             else:
                 save_settings_to_file(diff_only=False)
                 print("\n✅ Full settings saved!")
