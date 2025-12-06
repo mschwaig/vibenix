@@ -3,11 +3,11 @@ name: Build Test Packages
 on:
   workflow_dispatch:
     inputs:
-      max_packages:
-        description: 'Maximum number of packages to build (0 for all)'
+      package_ids:
+        description: 'Package IDs to build (e.g., "1-10,12,19"). Max 120 IDs. Leave empty for default (1-5)'
         required: false
-        default: '5'
-        type: number
+        default: ''
+        type: string
       use_cached_fetchers:
         description: 'Use cached fetchers for package requests'
         required: false
@@ -38,7 +38,7 @@ on:
       dataset_manual:
         description: 'Dataset directory/file path. URL-based: packaging_requests. CSV-based: single_fetcher_2025-08-01_2025-11-20.csv'
         required: false
-        default: 'packaging_requests'
+        default: 'single_fetcher_2025-08-01_2025-11-20.csv'
         type: string
       csv_file:
         description: 'Which CSV file to use within the dataset'
@@ -111,13 +111,18 @@ jobs:
           import json
           import random
           import os
+          import sys
+
+          # Add scripts directory to path to import id_range_parser
+          sys.path.insert(0, 'scripts')
+          from id_range_parser import parse_id_ranges, validate_id_range_constraints
 
           matrix_data = []
           dataset_path = '${{ github.event.inputs.dataset_manual || 'packaging_requests' }}'
 
           # Detect dataset type: if it ends with .csv, it's the new CSV format
           if dataset_path.endswith('.csv'):
-              # New CSV-based format with pname, version, fetcher columns
+              # New CSV-based format with pname, version, fetcher columns and random_order ID
               csv_file = f'research/{dataset_path}'
 
               # Validate use_cached_fetchers is true for CSV-based datasets
@@ -125,19 +130,50 @@ jobs:
               if not use_cached:
                   raise ValueError('CSV-based datasets require use_cached_fetchers to be true')
 
+              # Read all rows indexed by ID
+              rows_by_id = {}
               with open(csv_file, 'r') as f:
                   reader = csv.DictReader(f)
                   for row in reader:
                       if row['package_name']:  # Skip entries without package names
-                          matrix_data.append({
-                              'package_name': row['package_name'],
-                              'pname': row['pname'],
-                              'version': row['version'],
-                              'dataset_type': 'csv-based',
-                              'csv_dataset_path': csv_file
-                          })
+                          try:
+                              row_id = int(row['random_order'])
+                              rows_by_id[row_id] = row
+                          except (ValueError, KeyError):
+                              print(f'Warning: Skipping row without valid random_order ID', file=sys.stderr)
+
+              # Parse package ID ranges
+              package_ids_input = '${{ github.event.inputs.package_ids || '' }}'.strip()
+
+              if package_ids_input:
+                  # Parse the ID range specification
+                  try:
+                      selected_ids = parse_id_ranges(package_ids_input)
+                      # Validate constraints (max 120 IDs, valid range 1-532)
+                      validate_id_range_constraints(selected_ids, max_count=120, valid_range=(1, 532))
+                  except ValueError as e:
+                      raise ValueError(f'Invalid package_ids input: {e}')
+              else:
+                  # Default: IDs 1-5
+                  selected_ids = [1, 2, 3, 4, 5]
+
+              # Build matrix data from selected IDs
+              for row_id in selected_ids:
+                  if row_id in rows_by_id:
+                      row = rows_by_id[row_id]
+                      matrix_data.append({
+                          'package_name': row['package_name'],
+                          'pname': row['pname'],
+                          'version': row['version'],
+                          'id': row_id,
+                          'dataset_type': 'csv-based',
+                          'csv_dataset_path': csv_file
+                      })
+                  else:
+                      print(f'Warning: ID {row_id} not found in dataset', file=sys.stderr)
+
           else:
-              # Original URL-based format from directory
+              # Original URL-based format from directory (legacy - doesn't use IDs)
               dataset_dir = f'research/{dataset_path}'
 
               # Select CSV file based on csv_file choice
@@ -160,17 +196,15 @@ jobs:
                               'dataset_dir': dataset_dir
                           })
 
-          # Randomize if requested
-          randomize = '${{ github.event.inputs.randomize }}' == 'true'
-          if randomize:
-              random.shuffle(matrix_data)
+              # For URL-based datasets, randomize if requested and limit to 5 by default
+              randomize = '${{ github.event.inputs.randomize }}' == 'true'
+              if randomize:
+                  random.shuffle(matrix_data)
 
-          # GitHub Actions has a matrix size limit, so we might need to batch
-          max_packages = int('${{ github.event.inputs.max_packages || 5 }}')
-          if max_packages == 0:
-              matrix = {'include': matrix_data}
-          else:
-              matrix = {'include': matrix_data[:max_packages]}
+              # Limit to 5 for URL-based (legacy behavior)
+              matrix_data = matrix_data[:5]
+
+          matrix = {'include': matrix_data}
 
           with open('matrix.json', 'w') as f:
               json.dump(matrix, f)
