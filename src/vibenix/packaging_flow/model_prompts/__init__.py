@@ -102,39 +102,26 @@ def fix_hash_mismatch(code: str, error: str) -> ModelCodeResponse:
 # TODO Not managed by settings
 def evaluate_progress(log_diff: LogDiff) -> NixBuildErrorDiff:
     """Evaluate if the build made progress by comparing logs."""
+    # Use unified template for both full and truncated logs
+    @ask_model_prompt('progress_evaluation/evaluate_progress.md')
+    def _evaluate(
+        previous_log: str,
+        new_log: str,
+        is_truncated: bool
+    ) -> NixBuildErrorDiff:
+        ...
+
     if isinstance(log_diff, FullLogDiff):
-        # Use the full log template for complete logs
-        @ask_model_prompt('progress_evaluation/evaluate_full_logs.md')
-        def _evaluate_full(
-            previous_log: str,
-            new_log: str,
-            initial_lines: int,
-            improvement_lines: int
-        ) -> NixBuildErrorDiff:
-            ...
-        return _evaluate_full(
+        return _evaluate(
             previous_log=log_diff.previous_log,
             new_log=log_diff.new_log,
-            initial_lines=log_diff.initial_lines,
-            improvement_lines=log_diff.improvement_lines
+            is_truncated=False
         )
     else:  # ProcessedLogDiff
-        # Use the truncated log template for processed logs
-        @ask_model_prompt('progress_evaluation/evaluate_truncated_logs.md')
-        def _evaluate_truncated(
-            previous_log_truncated: str,
-            new_log_truncated: str,
-            initial_lines: int,
-            improvement_lines: int,
-            divergence_line: int
-        ) -> NixBuildErrorDiff:
-            ...
-        return _evaluate_truncated(
-            previous_log_truncated=log_diff.previous_log_truncated,
-            new_log_truncated=log_diff.new_log_truncated,
-            initial_lines=log_diff.initial_lines,
-            improvement_lines=log_diff.improvement_lines,
-            divergence_line=log_diff.divergence_line
+        return _evaluate(
+            previous_log=log_diff.previous_log_truncated,
+            new_log=log_diff.new_log_truncated,
+            is_truncated=True
         )
 
 
