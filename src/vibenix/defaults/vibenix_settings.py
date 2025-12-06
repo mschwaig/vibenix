@@ -107,12 +107,16 @@ DEFAULT_PROMPT_TOOLS.update(
 ### Settings ##################################################################
 DEFAULT_VIBENIX_SETTINGS = {
     # Individual tool toggles (disable specific tools globally)
-    # Empty: All tools enabled by default 
-    "tools": {tool: True for tool in ALL_TOOLS},
-    
+    # Disabled by default: semantic search and nix function search
+    "tools": {
+        **{tool: True for tool in ALL_TOOLS},
+        "search_nixpkgs_for_package_semantic": False,
+        "search_nix_functions": False,
+    },
+
     # Per-prompt tool configuration
     "prompt_tools": {prompt: DEFAULT_PROMPT_TOOLS[prompt] for prompt in ALL_PROMPTS},
-    
+
     # General behavior, misc
     "behaviour": {
         "progress_evaluation": True,
@@ -123,7 +127,7 @@ DEFAULT_VIBENIX_SETTINGS = {
             "max_consecutive_rebuilds_without_progress": 10,
         },
         "refinement": {
-            "enabled": True,
+            "enabled": False,
             "chat_history": True,
             "max_iterations": 2,
         },
