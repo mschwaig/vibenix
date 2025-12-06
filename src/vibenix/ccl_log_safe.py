@@ -21,10 +21,12 @@ def ensure_log_cleanup(signal_name: Optional[str] = None):
     try:
         logger = get_logger()
         # Log session end with signal information
-        # TODO: Get usage from pydantic-ai
+        from vibenix.ui.conversation_templated import get_model_prompt_manager
+        logger.log_clear_path()
+        logger.log_total_tool_cost()
         logger.log_session_end(
             signal=signal_name,
-            total_cost=None  # TODO: Get from pydantic-ai usage tracking
+            total_cost=get_model_prompt_manager().get_session_cost()
         )
         close_logger()
     except Exception:

@@ -170,6 +170,12 @@ class CCLLogger:
         compact = json.dumps(settings_to_json_format(settings), separators=(',', ':'))
         self.write_kv("vibenix_settings", compact)
     
+
+    # Clear attribute path before logging session end or exception
+    def log_clear_path(self):
+        """Clear the current attribute path."""
+        self._current_attr_path = []
+
     
     def log_session_end(self, signal: str = None, total_cost: float = None):
         """Log the end of a packaging session.
