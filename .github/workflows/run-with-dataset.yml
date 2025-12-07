@@ -122,23 +122,10 @@ jobs:
             echo '```' >> $GITHUB_STEP_SUMMARY
           else
             echo '```json' >> $GITHUB_STEP_SUMMARY
-            nix develop -c python -c 'import json; from vibenix.config import init, get_vibenix_settings; init(); print(json.dumps(get_vibenix_settings(), indent=2))' >> $GITHUB_STEP_SUMMARY || echo "{}"  >> $GITHUB_STEP_SUMMARY
+            nix develop -c python -c 'import json; from vibenix.defaults import DEFAULT_VIBENIX_SETTINGS, settings_to_json_format; print(json.dumps(settings_to_json_format(DEFAULT_VIBENIX_SETTINGS), indent=2))' >> $GITHUB_STEP_SUMMARY || echo "{}"  >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "#### Model Settings" >> $GITHUB_STEP_SUMMARY
-
-          # Pretty-print model settings if provided, otherwise get defaults from vibenix
-          if [ -n "${{ github.event.inputs.model_settings }}" ]; then
-            echo '```json' >> $GITHUB_STEP_SUMMARY
-            echo '${{ github.event.inputs.model_settings }}' | jq '.' >> $GITHUB_STEP_SUMMARY || echo '${{ github.event.inputs.model_settings }}' >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-          else
-            echo '```json' >> $GITHUB_STEP_SUMMARY
-            nix develop -c python -c 'import json; from vibenix.config import init, get_model_settings; init(); print(json.dumps(get_model_settings(), indent=2))' >> $GITHUB_STEP_SUMMARY || echo "{}"  >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-          fi
 
       - name: Create matrix from CSV
         id: create-matrix
