@@ -122,7 +122,7 @@ jobs:
             echo '```' >> $GITHUB_STEP_SUMMARY
           else
             echo '```json' >> $GITHUB_STEP_SUMMARY
-            nix develop -c python -c 'import json; from vibenix.defaults import DEFAULT_VIBENIX_SETTINGS, settings_to_json_format; print(json.dumps(settings_to_json_format(DEFAULT_VIBENIX_SETTINGS), indent=2))' >> $GITHUB_STEP_SUMMARY || echo "{}"  >> $GITHUB_STEP_SUMMARY
+            nix develop -c python -c 'import json; from vibenix.defaults import DEFAULT_VIBENIX_SETTINGS, settings_to_json_format; from vibenix.defaults.vibenix_settings import deep_diff; diff = deep_diff(DEFAULT_VIBENIX_SETTINGS, DEFAULT_VIBENIX_SETTINGS); print(json.dumps(settings_to_json_format(diff), indent=2))' >> $GITHUB_STEP_SUMMARY || echo "{}"  >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
