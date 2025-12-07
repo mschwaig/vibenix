@@ -96,6 +96,49 @@ jobs:
           name: vibenix-cache
           path: cachedir/
         
+      - name: Create setup summary
+        run: |
+          echo "# Configuration Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "## Workflow Inputs" >> $GITHUB_STEP_SUMMARY
+          echo "- **Package IDs**: ${{ github.event.inputs.package_ids || '1-30 (default)' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Use cached fetchers**: ${{ github.event.inputs.use_cached_fetchers || 'true' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Use alternate Gemini key**: ${{ github.event.inputs.use_alternate_gemini_key || 'false' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Model**: ${{ github.event.inputs.model || 'gemini/gemini-2.5-flash (default)' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dataset**: ${{ github.event.inputs.dataset_manual || 'single_fetcher_2025-08-01_2025-11-20.csv (default)' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **CSV file**: ${{ github.event.inputs.csv_file || 'implementation (default)' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Concurrent jobs**: ${{ github.event.inputs.concurrent_jobs || '1 (default)' }}" >> $GITHUB_STEP_SUMMARY
+
+          # Add Ollama host if provided
+          if [ -n "${{ github.event.inputs.ollama_host }}" ]; then
+            echo "- **Ollama host**: ${{ github.event.inputs.ollama_host }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Vibenix Settings" >> $GITHUB_STEP_SUMMARY
+
+          # Pretty-print vibenix settings if provided
+          if [ -n "${{ github.event.inputs.vibenix_settings }}" ]; then
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            echo '${{ github.event.inputs.vibenix_settings }}' | jq '.' >> $GITHUB_STEP_SUMMARY || echo '${{ github.event.inputs.vibenix_settings }}' >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "*(Using default settings)*" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Model Settings" >> $GITHUB_STEP_SUMMARY
+
+          # Pretty-print model settings if provided
+          if [ -n "${{ github.event.inputs.model_settings }}" ]; then
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            echo '${{ github.event.inputs.model_settings }}' | jq '.' >> $GITHUB_STEP_SUMMARY || echo '${{ github.event.inputs.model_settings }}' >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "*(Using default settings)*" >> $GITHUB_STEP_SUMMARY
+          fi
+
       - name: Create matrix from CSV
         id: create-matrix
         run: |
@@ -455,8 +498,6 @@ jobs:
             echo "- Packaging Request: https://github.com/NixOS/nixpkgs/issues/${{ matrix.issue_number }}" >> $GITHUB_STEP_SUMMARY
           fi
 
-          echo "- Provider: ${{ steps.provider.outputs.provider }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Model: ${{ github.event.inputs.model || 'gemini/gemini-2.5-flash' }}" >> $GITHUB_STEP_SUMMARY
           echo "- Status: ${status_emoji} **${status_text}**" >> $GITHUB_STEP_SUMMARY
           if [ -n "${{ steps.process.outputs.package_name }}" ]; then
             echo "- Generated package name: ${{ steps.process.outputs.package_name }}" >> $GITHUB_STEP_SUMMARY
@@ -464,19 +505,27 @@ jobs:
           if [ -f "$log_file" ]; then
             echo "- Log size: $(wc -c < $log_file) bytes" >> $GITHUB_STEP_SUMMARY
           fi
-          if [ -f "output/${{ steps.process.outputs.package_name }}/package.nix" ]; then
-            echo "- Generated package.nix: ✓" >> $GITHUB_STEP_SUMMARY
-          fi
           if [ -f "output/run.ccl" ]; then
-            echo "- Generated run.ccl: ✓" >> $GITHUB_STEP_SUMMARY
             # Extract total cost from run.ccl if present
             total_cost=$(grep "total_cost =" "output/run.ccl" | tail -1 | cut -d'=' -f2 | tr -d ' ')
             if [ -n "$total_cost" ]; then
               echo "- Total API cost: \$$total_cost" >> $GITHUB_STEP_SUMMARY
             fi
           fi
-          if [ -f "$log_file" ] && [ -s "$log_file" ]; then
-            echo "### Log excerpt:" >> $GITHUB_STEP_SUMMARY
+
+          # On success: show package.nix contents
+          if [ "${{ steps.process.outputs.status }}" = "success" ] && [ -f "output/${{ steps.process.outputs.package_name }}/package.nix" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Generated package.nix:" >> $GITHUB_STEP_SUMMARY
+            echo '```nix' >> $GITHUB_STEP_SUMMARY
+            cat "output/${{ steps.process.outputs.package_name }}/package.nix" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # On failure: show tail of log
+          if [ "${{ steps.process.outputs.status }}" = "failed" ] && [ -f "$log_file" ] && [ -s "$log_file" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Log tail (last 50 lines):" >> $GITHUB_STEP_SUMMARY
             echo '<pre>' >> $GITHUB_STEP_SUMMARY
             tail -n 50 "$log_file" >> $GITHUB_STEP_SUMMARY
             echo '</pre>' >> $GITHUB_STEP_SUMMARY
