@@ -101,11 +101,13 @@ def mock_input (ask : str, reply: str):
     logger.info(reply + "\n")
     return reply
 
-def run_terminal_ui(output_dir=None, project_url=None, revision=None, fetcher=None,
-                    csv_pname=None, csv_version=None, fetcher_content=None):
+def run_terminal_ui(maintenance=None, output_dir=None, project_url=None, revision=None, fetcher=None,
+                    csv_pname=None, csv_version=None, fetcher_content=None,
+                    target_version=None, update_lock=False, upgrade_lock=False):
     """Run the terminal-based interface.
 
     Args:
+        maintenance: Directory containing flake.nix and package.nix for maintenance mode
         output_dir: Directory to save successful package.nix files
         project_url: GitHub project URL to package (URL-based mode)
         revision: Project revision (commit hash, tag, or release name)
@@ -113,6 +115,10 @@ def run_terminal_ui(output_dir=None, project_url=None, revision=None, fetcher=No
         csv_pname: Package name from CSV format (CSV-based mode)
         csv_version: Package version from CSV format (CSV-based mode)
         fetcher_content: Direct fetcher content (alternative to fetcher file path)
+        revision: Specific revision to update to (maintenance mode) (e.g., commit hash, tag, release name) (default: latest)
+        target_version: Updated version value (maintenance mode) (default: target_revision)
+        update_lock: Whether to update flake.lock (maintenance mode)
+        upgrade_lock: Whether to upgrade nixpkgs (maintenance mode)
     """
     from vibenix.ui.logging_config import enable_console_logging
     enable_console_logging()
@@ -127,7 +133,7 @@ def run_terminal_ui(output_dir=None, project_url=None, revision=None, fetcher=No
     set_ui_adapter(TerminalUIAdapter())
 
     # If project URL, Nix fetcher, or CSV mode are provided, skip interactive configuration
-    if (project_url or fetcher or csv_pname):
+    if (project_url or fetcher or csv_pname or maintenance):
         from vibenix.model_config import load_saved_configuration, initialize_model_config
         from vibenix.ui.raw_terminal.terminal_vibenix_settings import ensure_settings_configured
 
@@ -162,7 +168,12 @@ def run_terminal_ui(output_dir=None, project_url=None, revision=None, fetcher=No
 
     def run_coordinator():
         try:
-            run_packaging_flow(output_dir=output_dir, project_url=project_url,
+            if maintenance:
+                from vibenix.packaging_flow.maintenance import run_maintenance
+                run_maintenance(maintenance, output_dir=output_dir, revision=revision,
+                               version=target_version, update_lock=update_lock, upgrade_lock=upgrade_lock)
+            else:
+                run_packaging_flow(output_dir=output_dir, project_url=project_url,
                                revision=revision, fetcher=fetcher,
                                csv_pname=csv_pname, csv_version=csv_version,
                                fetcher_content=fetcher_content)
@@ -236,10 +247,11 @@ def main():
     )
 
     parser.add_argument(
-        "revision",
+        "--revision", "-r",
+        dest="revision",
         type=str,
         nargs="?",
-        help="Project revision to package (e.g., commit hash, tag, release name) (optional)."
+        help="Project revision to package (e.g., commit hash, tag, release name)."
     )
 
     parser.add_argument(
@@ -272,6 +284,38 @@ def main():
     )
 
     parser.add_argument(
+        "--maintenance",
+        type=str,
+        default=None,
+        metavar="MAINTENANCE_DIR",
+        help="Directory containing flake.nix and package.nix (flake.lock optional) for maintenance mode. Requires --raw. Incompatible with --csv-dataset, --csv-package, and --fetcher."
+    )
+    
+    parser.add_argument(
+        "--update-lock",
+        type=bool,
+        default=False,
+        metavar="UPDATE_LOCK",
+        help="Whether to update the flake.lock file if present during maintenance mode. Requires --raw. Default: False"
+    )
+
+    parser.add_argument(
+        "--upgrade-lock",
+        type=bool,
+        default=False,
+        metavar="UPGRADE_LOCK",
+        help="Whether to upgrade/bump the nixpkgs release used during maintenance mode. Requires --raw. Default: False"
+    )
+
+    parser.add_argument(
+        "--target-version",
+        type=str,
+        default=None,
+        metavar="TARGET_VERSION",
+        help="Optional target version to set in package.nix . Requires --maintenance, --revision. Default: --revision value."
+    )
+
+    parser.add_argument(
         "--version",
         action="version",
         version="vibenix 0.1.0"
@@ -285,6 +329,20 @@ def main():
             from vibenix.ui.raw_terminal.terminal_vibenix_settings import show_vibenix_settings_terminal
             show_vibenix_settings_terminal()
             sys.exit(0)
+
+        # Validate maintenance mode constraints
+        if args.maintenance:
+            # Maintenance mode requires --raw
+            if not args.raw:
+                parser.error("--maintenance requires --raw to be set")
+            
+            # Maintenance mode is incompatible with project_url
+            if args.project_url:
+                parser.error("--maintenance is incompatible with project_url argument")
+            
+            # Maintenance mode is incompatible with CSV dataset mode
+            if args.csv_dataset or args.csv_package or args.fetcher:
+                parser.error("--maintenance is incompatible with --csv-dataset, --csv-package and --fetcher arguments")
 
         if args.textual:
             # Textual UI mode (unmaintained)
@@ -350,13 +408,15 @@ def main():
                 config.nixpkgs_commit = args.nixpkgs_commit
 
             # Validate output-dir requires some input mode
-            if args.output_dir and not (args.project_url or args.fetcher or csv_pname):
+            if args.output_dir and not (args.project_url or args.fetcher or csv_pname or args.maintenance):
                 parser.error("--output-dir requires a project URL, Nix fetcher, or CSV dataset to be provided")
 
-            run_terminal_ui(output_dir=args.output_dir, project_url=args.project_url,
+            run_terminal_ui(maintenance=args.maintenance, output_dir=args.output_dir, project_url=args.project_url,
                             revision=args.revision, fetcher=args.fetcher,
                             csv_pname=csv_pname, csv_version=csv_version,
-                            fetcher_content=fetcher_content)
+                            fetcher_content=fetcher_content,
+                            target_version=args.target_version,
+                            update_lock=args.update_lock, upgrade_lock=args.upgrade_lock)
     except KeyboardInterrupt:
         logger.info("\nExiting...")
         sys.exit(0)

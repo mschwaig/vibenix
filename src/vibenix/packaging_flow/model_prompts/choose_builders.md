@@ -12,6 +12,7 @@ Taking into account the project description below, choose the most specific pack
 - Choose the **most specific builder** that matches the project's primary language/framework
 - Only use `mkDerivation` as a fallback when no specialized builder exists (or to combine multiple builders)
 - Choose all required builders, especially for mixed-language projects
+- "Application vs. Package" Rule: If the project is a standalone tool the user runs (e.g., a CLI tool or a GUI), prioritize `Application`. If its primarily modules/libraries, use `Package`.
 
 Available builders:
 {% for builder in available_builders %}

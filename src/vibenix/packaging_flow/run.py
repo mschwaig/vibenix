@@ -22,6 +22,7 @@ from vibenix.ccl_log import init_logger, get_logger, close_logger, enum_str
 from vibenix.git_info import get_git_info
 from vibenix.tools.view import _view as view_package_contents
 from vibenix.defaults.vibenix_settings import get_settings_manager
+from vibenix.template.template_types import TemplateType
 
 
 def _get_nixpkgs_source_path() -> str:
@@ -78,7 +79,7 @@ def get_release_data_and_version(url, rev=None):
     ccl_logger.leave_attribute(log_end=True)
     return rev, version
 
-def run_nurl(url, rev=None):
+def run_nurl(url, rev=None, finalAttrs: bool=False, extra_args: str=None):
     """Run nurl command and return the version and fetcher."""
     backoff_time = 5  # seconds
     try:
@@ -90,7 +91,8 @@ def run_nurl(url, rev=None):
         rev, version = get_release_data_and_version(url, rev)
 
         cmd = ['nurl', url, rev] if rev else ['nurl', url]
-        ccl_logger.write_kv("nurl_args", " ".join(cmd[1:]))
+        if extra_args:
+            cmd += extra_args.split()
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -102,7 +104,7 @@ def run_nurl(url, rev=None):
         # Format fetcher with version
         ccl_logger.write_kv("fetcher", fetcher)
         if version:
-            fetcher = fetcher.replace(version, "${version}") 
+            fetcher = fetcher.replace(version, "${"+ f"{'finalAttrs.' if finalAttrs else ''}" + "version}") 
         else:
             version = "unstable-${src.rev}"
         ccl_logger.write_kv("version", version)
@@ -307,18 +309,19 @@ in with pkgs; stdenv.mkDerivation {{
             raise RuntimeError(f"Timeout evaluating project fetcher: {e}")
 
         ccl_logger.leave_attribute(log_end=True)
-        return content, store_path
+        return store_path
     except Exception as e:
         coordinator_error(f"Error evaluating fetcher content: {e}")
         raise
 
 
-def compare_template(available_builders, initial_code,
-                     find_similar_builder_patterns, summary) -> str:
+def compare_template(initial_code, find_similar_builder_patterns, summary) -> str:
     """Prompt LLM to compare template with set of builders it thinks are relevant,
     present builder combinations to model, and let it make changes if needed."""
     from vibenix.tools.search_related_packages import _extract_builders
+    from vibenix.tools.search_related_packages import _get_builder_functions
 
+    available_builders = _get_builder_functions()
     builders = choose_builders(available_builders, summary)
     if not choose_builders:
         raise RuntimeError("Model failed to choose builders for comparison.")
@@ -398,7 +401,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
         ccl_logger.write_kv("csv_pname", csv_pname)
         ccl_logger.write_kv("csv_version", csv_version)
         # fetcher_content is already set from CSV parsing in main.py
-        fetcher_content, store_path = evaluate_fetcher_content(fetcher_content, csv_version, csv_pname)
+        store_path = evaluate_fetcher_content(fetcher_content, csv_version, csv_pname)
         pname = csv_pname
         version = csv_version
     elif fetcher:
@@ -423,9 +426,9 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     nixpkgs_path = get_nixpkgs_source_path()
     project_functions = create_source_function_calls(store_path, "project_")
     nixpkgs_functions = create_source_function_calls(nixpkgs_path, "nixpkgs_")
-    from vibenix.tools.search_related_packages import get_builder_functions, _create_find_similar_builder_patterns
-    available_builders = get_builder_functions()
-    find_similar_builder_patterns = _create_find_similar_builder_patterns(available_builders)
+    from vibenix.tools.search_related_packages import get_builder_functions, \
+     _create_find_similar_builder_patterns
+    find_similar_builder_patterns = _create_find_similar_builder_patterns(use_cache=True)
     additional_functions = project_functions + nixpkgs_functions + [get_builder_functions, find_similar_builder_patterns]
     # Initialize said tools via settings manager
     get_settings_manager().initialize_additional_tools(additional_functions)
@@ -441,18 +444,25 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
         return
 
     ccl_logger.log_project_summary_begin()
-    summary = analyze_project(source_info=source_info)
+    if get_settings_manager().get_setting_enabled("analyze_project"):
+        summary = analyze_project(source_info=source_info)
+        if not summary:
+            coordinator_error("Model failed to produce a project summary.")
+    else:
+        summary = ""
+        coordinator_message("Project analysis is disabled, proceeding with empty summary.")
     ccl_logger.log_project_summary_end(summary)
-
-    if not summary:
-        coordinator_error("Model failed to produce a project summary.")
 
     # Step 4: Pick template
     ccl_logger.log_template_selected_begin()
-    template_type = pick_template(summary)
-    if not template_type:
-        coordinator_error("Model failed to pick a template type.")
-        return
+    if get_settings_manager().get_setting_enabled("pick_template"):
+        template_type = pick_template(get_settings_manager().get_enabled_templates(), summary)
+        if not template_type:
+            coordinator_error("Model failed to pick a template type.")
+            return
+    else:
+        template_type = TemplateType.GENERIC
+        coordinator_message("Template selection is disabled, defaulting to GENERIC template.")
     coordinator_message(f"Selected template: {template_type.value}")
     template_filename = f"{template_type.value}.nix"
     template_path = config.template_dir / template_filename
@@ -473,7 +483,7 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
     initial_code = fill_src_attributes(starting_template, pname, version, fetcher_content)
 
     if get_settings_manager().get_setting_enabled("compare_template_builders"):
-        initial_code = compare_template(available_builders, initial_code, find_similar_builder_patterns, summary)
+        initial_code = compare_template(initial_code, find_similar_builder_patterns, summary)
     coordinator_message(f"Initial package code:\n```nix\n{initial_code}\n```")
 
     # Step 7: Agentic loop
@@ -490,12 +500,18 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
 
     # Log the raw package code before refinement or analysis
     ccl_logger.write_kv("raw_package", candidate.code)
-    
+    packaging_usage = get_model_prompt_manager().get_session_usage()
+    ccl_logger.log_packaging_loop_cost(
+        packaging_usage.calculate_cost(),
+        packaging_usage.prompt_tokens,
+        packaging_usage.completion_tokens,
+        packaging_usage.cache_read_tokens
+    )
+
     if candidate.result.success:
         coordinator_message("Build succeeded!")
         if get_settings_manager().get_setting_enabled("refinement.enabled"):
-            packaging_usage = get_model_prompt_manager().get_session_usage()
-            candidate = refine_package(candidate, summary)
+            candidate = refine_package(candidate, summary, output_dir)
             ccl_logger.write_kv("refined_package", candidate.code)
 
             refinement_usage = get_model_prompt_manager().get_session_usage() - packaging_usage
@@ -509,10 +525,15 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
         
         ccl_logger.log_total_tool_cost()
         # Always log success and return, regardless of refinement outcome
-        ccl_logger.log_session_end(signal=None, total_cost=get_model_prompt_manager().get_session_cost())
-        close_logger()
+        session_usage = get_model_prompt_manager().get_session_usage()
+        ccl_logger.log_session_end(signal=None, total_cost=get_model_prompt_manager().get_session_cost(),
+                total_input_tokens=session_usage.prompt_tokens,
+                total_output_tokens=session_usage.completion_tokens,
+                total_cache_read_tokens=session_usage.cache_read_tokens
+        )
         if output_dir:
             save_package_output(candidate.code, output_dir)
+        close_logger()
         return candidate.code  
     else:
         max_iterations = get_settings_manager().get_setting_value("packaging_loop.max_iterations")
@@ -533,12 +554,17 @@ def package_project(output_dir=None, project_url=None, revision=None, fetcher=No
         coordinator_message(f"Packaging failure type: {packaging_failure}\nDetails:\n{details}\n")
 
     ccl_logger.log_total_tool_cost()
-    ccl_logger.log_session_end(signal=None, total_cost=get_model_prompt_manager().get_session_cost())
+    session_usage = get_model_prompt_manager().get_session_usage()
+    ccl_logger.log_session_end(signal=None, total_cost=get_model_prompt_manager().get_session_cost(),
+            total_input_tokens=session_usage.prompt_tokens,
+            total_output_tokens=session_usage.completion_tokens,
+            total_cache_read_tokens=session_usage.cache_read_tokens
+    )
     close_logger()
     return None
 
 
-def save_package_output(code: str, output_dir: str):
+def save_package_output(code: str, output_dir: str, auxiliary_files: bool=False):
     """Save the package.nix file to the output directory."""
     import os
     import re
@@ -559,8 +585,17 @@ def save_package_output(code: str, output_dir: str):
     # Save package.nix
     package_file = output_path / "package.nix"
     package_file.write_text(code)
+
+    # Save flake.nix and flake.lock
+    for filename in ["flake.nix", "flake.lock"]:
+        src_file = Path(config.flake_dir) / filename
+        if src_file.exists():
+            dest_file = output_path / filename
+            dest_file.write_text(src_file.read_text())
     
     coordinator_message(f"Saved package to: {package_file}")
+    from vibenix.ccl_log import get_logger
+    get_logger().log_save_package(str(package_file))
 
 
 def run_packaging_flow(output_dir=None, project_url=None, revision=None, fetcher=None,
@@ -581,6 +616,11 @@ def run_packaging_flow(output_dir=None, project_url=None, revision=None, fetcher
         coordinator_error(f"Unexpected error: {e}")
         from vibenix.ccl_log import get_logger
         get_logger().log_total_tool_cost()
-        get_logger().log_session_end(signal=None, total_cost=get_model_prompt_manager().get_session_cost())
+        session_usage = get_model_prompt_manager().get_session_usage()
+        get_logger().log_session_end(signal=None, total_cost=get_model_prompt_manager().get_session_cost(),
+                total_input_tokens=session_usage.prompt_tokens,
+                total_output_tokens=session_usage.completion_tokens,
+                total_cache_read_tokens=session_usage.cache_read_tokens
+        )
         close_logger()
         raise

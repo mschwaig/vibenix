@@ -4,13 +4,13 @@ from typing import Dict, List, Callable, Optional, Any, Union, Set
 from vibenix.tools import (
     SEARCH_TOOLS,
     EDIT_TOOLS,
-    OUT_PATH_TOOLS,
+    MAINTENANCE_TOOLS,
     VM_TOOLS,
     search_nix_functions,
     search_nixpkgs_manual_documentation,
 )
 from vibenix.tools.file_tools import create_source_function_calls
-from vibenix.tools.out_path_file_tools import create_out_path_file_tools
+from vibenix.template.template_types import TemplateType
 
 
 def deep_merge(original, update):
@@ -56,8 +56,11 @@ ALL_PROMPTS = [
     "pick_template",
     "summarize_project_source",
     "get_feedback",
+    "mnt_get_feedback",
     "refine_code",
+    "improve_code",
     "fix_build_error",
+    "fix_build_error_maintenance",
     "fix_hash_mismatch",
     "evaluate_progress",
     "classify_packaging_failure",
@@ -80,7 +83,7 @@ def _build_tool_name_map() -> Dict[str, Callable]:
     from vibenix.agent import tool_wrapper
 
     tool_map = {}
-    for func in SEARCH_TOOLS + EDIT_TOOLS + OUT_PATH_TOOLS + VM_TOOLS:
+    for func in SEARCH_TOOLS + EDIT_TOOLS + VM_TOOLS + MAINTENANCE_TOOLS:
         tool_map[func.__name__] = tool_wrapper(func)
     for func in ADDITIONAL_TOOLS:
         tool_map[func] = None
@@ -93,9 +96,12 @@ DEFAULT_PROMPT_TOOLS: Dict[str, List[str]] = {prompt: [] for prompt in ALL_PROMP
 DEFAULT_PROMPT_TOOLS.update(
     {
         'summarize_project_source': PROJECT_TOOLS,
-        'get_feedback': get_names(SEARCH_TOOLS + VM_TOOLS) + ADDITIONAL_TOOLS, # Access to run_in_vm tools
-        'refine_code': get_names(SEARCH_TOOLS + EDIT_TOOLS + OUT_PATH_TOOLS), # Access to out path tools
+        'get_feedback': get_names(SEARCH_TOOLS + VM_TOOLS) + ADDITIONAL_TOOLS,
+        'mnt_get_feedback': get_names(SEARCH_TOOLS + VM_TOOLS + MAINTENANCE_TOOLS) + ADDITIONAL_TOOLS,
+        'refine_code': get_names(SEARCH_TOOLS + EDIT_TOOLS),
+        'improve_code': get_names(EDIT_TOOLS),
         'fix_build_error': get_names(SEARCH_TOOLS + EDIT_TOOLS) + ADDITIONAL_TOOLS,
+        'fix_build_error_maintenance': get_names(SEARCH_TOOLS + EDIT_TOOLS + MAINTENANCE_TOOLS) + ADDITIONAL_TOOLS,
         'fix_hash_mismatch': get_names(EDIT_TOOLS),
         'analyze_package_failure': get_names(SEARCH_TOOLS) + ADDITIONAL_TOOLS,
         'compare_template_builders': get_names([search_nix_functions, search_nixpkgs_manual_documentation]+EDIT_TOOLS)
@@ -119,8 +125,13 @@ DEFAULT_VIBENIX_SETTINGS = {
     # Per-prompt tool configuration
     "prompt_tools": {prompt: DEFAULT_PROMPT_TOOLS[prompt] for prompt in ALL_PROMPTS},
 
+    "templates": {template.value: True for template in TemplateType},
+
     # General behavior, misc
     "behaviour": {
+        "strict_lock_env": False,
+        "analyze_project": True,
+        "pick_template": True,
         "progress_evaluation": True,
         "compare_template_builders": False,
         "packaging_loop": {
@@ -136,7 +147,7 @@ DEFAULT_VIBENIX_SETTINGS = {
         "edit_tools": True,
         # Snippets to add to prompts dynamically
         "snippets": {
-            "tool": "To perform each change to the code, use the text editor tools: [<TOOLS>].",
+            "tool": "To change the code, use the text editor tools: [<TOOLS>]. Do not include the full update code in your answer.",
             "extract": "Please respond with the full updated packaging code, wrapped like so:\n```nix\n...\n```.",
             "object": "Please respond with a valid ModelCodeResponse object containing the full updated packaging code.",
             "feedback": "Please respond with the list of concrete changes you would make to the packaging code. Be specific."
@@ -359,6 +370,15 @@ class VibenixSettingsManager:
         all_tools = {name: True for name in ALL_TOOLS}
         all_tools.update({name: False for name in to_disable})
         self.settings["tools"] = all_tools
+
+    def get_enabled_templates(self) -> List[str]:
+        """Get a list of enabled template types.
+        
+        Returns:
+            List of enabled template type names
+        """
+        templates = self.settings.get("templates", {})
+        return [name for name, is_enabled in templates.items() if is_enabled]
 
     # Prompt tools
     def list_all_tools(self) -> List[str]:

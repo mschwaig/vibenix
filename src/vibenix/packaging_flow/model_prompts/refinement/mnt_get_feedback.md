@@ -13,10 +13,8 @@ Please identify improvements, if any exist, to the packaging code, in the follow
        - For applications: ensure the binaries run without errors (e.g. `program --version`);
        - For libraries: ensure the main module can be imported/loaded without errors;
        - Ensure the correct Nix builder is used, and identify missing dependencies, if any.
-    2. Once the package is correct, and if there is no test suite or check clearly present that validates the packaging:
-       - Try the most simple Nix builder specific attributes for validation (e.g. `pythonImportsCheck`), and using the project's integrated testing frameworks.
-       - When that proves tricky or not applicable, ensure `doInstallCheck = true;` is present with a meaningful `installCheckPhase` (as in 1.);
     (...)
+    2. Do not destructively change the existing test suite/checks, unless to disable specific tests that explicitly no longer function, or to experiment re-enabling certain tests in case disabling them is no longer needed.
 
 **Each invocation of `run_in_vm` starts a fresh VM** that boots, executes your script, and shuts down. The VM has **no network access** and **no Nix binary** (on purpose).
 The VM's environment.systemPackages initially made available (beside generic utilities) are `{{ systemPackages }}`. If additional packages are necessary, change this, before calling `run_in_vm`, with the tool `set_vm_systemPackages`.
@@ -38,5 +36,5 @@ Here is the `tree` output of the /home/test/package directory:
 ```
 
 Notes:
-- The meta attribute is irrelevant, do not include it.
+- Nothing in the meta attribute of a derivation has any impact on its build output, so refrain from making changes to it.
 - Do not access the project's online git repository, and instead browse the local files in the Nix store.

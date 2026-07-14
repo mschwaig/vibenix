@@ -31,11 +31,42 @@ def run_formatter_after(func):
         return result
     return wrapper
 
+def pick_template(templates: List[str], project_page: str) -> TemplateType:
+    """Select the appropriate template for a project.
 
-@ask_model_prompt('pick_template.md')
-def pick_template(project_page: str) -> TemplateType:
-    """Select the appropriate template for a project."""
-    ...
+    The underlying model is constrained to an Enum built from the
+    provided templates argument (intersected with TemplateType). The
+    result is then mapped back to TemplateType for callers.
+    """
+    enabled_members = {}
+    for item in templates:
+        for name, member in TemplateType.__members__.items():
+            if member.value == item:
+                enabled_members[name] = member.value
+                break
+
+    if enabled_members:
+        EnabledTemplateType = Enum("EnabledTemplateType", enabled_members)
+    else:
+        print("⚠️  Warning: No valid templates provided for model prompt, falling back to full TemplateType.")
+        # If nothing valid was provided, fall back to full TemplateType
+        # so the prompt still has a usable schema.
+        EnabledTemplateType = TemplateType
+
+    # func name itself not relevant, prompt key is derived from template_path
+    @ask_model_prompt('pick_template.md')
+    def _pick_template_inner(templates: List[str], project_page: str) -> EnabledTemplateType:
+        ...
+
+    result = _pick_template_inner(templates, project_page)
+
+    # If our enabled enum fell back to TemplateType, the result is
+    # already the desired type.
+    if isinstance(result, TemplateType):
+        return result
+
+    # Otherwise, map by enum member name back into TemplateType.
+    return TemplateType[result.name]
 
 
 @ask_model_prompt('summarize_project_source.md')
@@ -55,10 +86,26 @@ def evaluate_code(code: str, previous_code: str, feedback: str) -> RefinementExi
 @ask_model_prompt('refinement/get_feedback.md')
 def get_feedback(
     code: str,
+    chat_history: Optional[List],
+    lessons_learned: List[str] = [],
+    already_implemented: List[str] = [],
     project_page: Optional[str] = None,
-    chat_history: Optional[List] = None
+    tree_output: Optional[str] = "",
 ) -> str:
     """Get feedback on a successfully built package."""
+    ...
+
+
+@ask_model_prompt('refinement/mnt_get_feedback.md')
+def mnt_get_feedback(
+    code: str,
+    chat_history: Optional[List],
+    lessons_learned: List[str] = [],
+    already_implemented: List[str] = [],
+    project_page: Optional[str] = None,
+    tree_output: Optional[str] = "",
+) -> str:
+    """Get feedback on a successfully built package (maintenance mode)."""
     ...
 
 
@@ -67,11 +114,22 @@ def get_feedback(
 def refine_code(
     code: str,
     feedback: str,
+    chat_history: Optional[List],
     project_page: Optional[str] = None,
     template_notes: Optional[str] = None,
-    chat_history: Optional[List] = None
 ) -> ModelCodeResponse:
     """Refine a nix package based on feedback."""
+    ...
+
+
+@run_formatter_after
+@ask_model_prompt('refinement/improve_code.md')
+def improve_code(
+    code: str,
+    feedback: str,
+    chat_history: Optional[List]
+) -> ModelCodeResponse:
+    """Improve a refined Nix package, with suggestions from linters."""
     ...
 
 
@@ -90,6 +148,24 @@ def fix_build_error(
     chat_history: Optional[List] = None,
 ) -> ModelCodeResponse:
     """Fix a build error in Nix code."""
+    ...
+
+
+@run_formatter_after
+@ask_model_prompt('error_fixing/mnt_fix_build_error.md')
+def fix_build_error_maintenance(
+    code: str,
+    error: str,
+    project_page: Optional[str] = None,
+    template_notes: Optional[str] = None,
+    is_broken_log_output: bool = False,
+    is_dependency_build_error: bool = False,
+    is_syntax_error: bool = False,
+    attempted_tool_calls: List = [],
+    tool_call_collector: List = None,
+    chat_history: Optional[List] = None,
+) -> ModelCodeResponse:
+    """Fix a build error in Nix code during maintenance mode."""
     ...
 
 
@@ -165,12 +241,14 @@ __all__ = [
     "evaluate_code",
     "get_feedback",
     "refine_code",
+    "improve_code",
     "fix_build_error",
     "fix_hash_mismatch",
     "evaluate_progress",
     "classify_packaging_failure",
     "analyze_package_failure",
-    "summarize_build",
     "choose_builders",
     "compare_template_builders",
+    "mnt_get_feedback",
+    "fix_build_error_maintenance",
 ]

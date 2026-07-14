@@ -28,10 +28,11 @@ def _view(view_range: list[int]=None, prompt: str=None) -> str:
 
         # Show line numbers if prompt uses edit tools or if specifically requested
         if prompt:
+
             prompt_tools = (get_settings_manager().is_edit_tools_prompt(prompt) 
              and get_settings_manager().get_setting_enabled("edit_tools"))
 
-            if prompt_tools:
+            if prompt_tools or prompt == "_view":
                 lines = [f"{i+1:>3}: {line}" for i, line in enumerate(lines)]
 
         if view_range:

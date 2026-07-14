@@ -23,7 +23,7 @@ MAX_CONSECUTIVE_REBUILDS_WITHOUT_PROGRESS = settings_manager.get_setting_value("
 MAX_CONSECUTIVE_NON_BUILD_ERRORS = settings_manager.get_setting_value("packaging_loop.max_consecutive_non_build_errors")
 
 def packaging_loop(best: Solution, summary: str,
-    max_iterations: int = MAX_ITERATIONS, chat_history: List[ModelMessage] = []):
+    max_iterations: int = MAX_ITERATIONS, chat_history: List[ModelMessage] = None, maintenance_mode: bool = False):
     """Loop that receives a Solution (code and build result), and iteratively
     attempts to fix the errors until a successful build is a achieved or a
     limit of (failing, etc.) iterations is reached."""
@@ -86,17 +86,32 @@ def packaging_loop(best: Solution, summary: str,
                 syntax_error_index = error_truncated.index("error: syntax error")
                 error_truncated = error_truncated[syntax_error_index:]
 
-            fix_build_error(
-                view_package_contents(prompt="fix_build_error"),
-                error_truncated, 
-                summary, 
-                has_broken_log_output,
-                is_dependency_error,
-                is_syntax_error,
-                attempted_tool_calls,
-                iteration_tool_calls,
-                chat_history=chat_history
-            )
+            if not maintenance_mode:
+                fix_build_error(
+                    view_package_contents(prompt="fix_build_error"),
+                    error_truncated, 
+                    summary, 
+                    has_broken_log_output,
+                    is_dependency_error,
+                    is_syntax_error,
+                    attempted_tool_calls,
+                    iteration_tool_calls,
+                    chat_history=chat_history
+                )
+            else:
+                from vibenix.packaging_flow.model_prompts import fix_build_error_maintenance
+                fix_build_error_maintenance(
+                    view_package_contents(prompt="fix_build_error_maintenance"),
+                    error_truncated, 
+                    summary, 
+                    has_broken_log_output,
+                    is_dependency_error,
+                    is_syntax_error,
+                    attempted_tool_calls,
+                    iteration_tool_calls,
+                    chat_history=chat_history
+                )
+
             
             # Add this iteration's tool calls to the attempted list
             attempted_tool_calls.extend(iteration_tool_calls)

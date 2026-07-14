@@ -244,7 +244,7 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     name: "${{ matrix.id || matrix.issue_number }}: ${{ matrix.repo_name || matrix.package_name }}"
-    timeout-minutes: 45
+    timeout-minutes: 65
     strategy:
       matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
       max-parallel: ${{ fromJson(github.event.inputs.concurrent_jobs || '1') }}  # Configurable parallel jobs
@@ -262,7 +262,7 @@ jobs:
           # Determine provider from model input
           model="${{ github.event.inputs.model || 'gemini/gemini-2.5-flash' }}"
           if [[ "$model" == ollama/* ]]; then
-            provider="ollama"
+            provider="openai"
           elif [[ "$model" == openai/* || "$model" == gpt-* ]]; then
             provider="openai"
           elif [[ "$model" == anthropic/* || "$model" == claude-* ]]; then
@@ -270,7 +270,7 @@ jobs:
           elif [[ "$model" == gemini/* || "$model" == *gemini* ]]; then
             provider="gemini"
           else
-            provider="openai"  # Default to openai if unknown
+            provider=$(echo "$model" | cut -d'/' -f1)
           fi
           echo "provider=$provider" >> $GITHUB_OUTPUT
       
@@ -284,8 +284,13 @@ jobs:
           authToken: '${{ secrets.CACHIX_TOKEN }}'
         
       - name: Tailscale
-        if: ${{ steps.provider.outputs.provider == 'ollama' || steps.provider.outputs.provider == 'openai' }}
+        if: >-
+          (steps.provider.outputs.provider == 'ollama' || 
+           steps.provider.outputs.provider == 'openai') && 
+          env.TS_ID != ''
         uses: tailscale/github-action@v3
+        env:
+          TS_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
@@ -295,15 +300,12 @@ jobs:
         run: |
           mkdir -p ~/.vibenix
           
+          provider="${{ steps.provider.outputs.provider }}"
           # Convert ollama/modelname to openai/modelname (no-op for other providers)
           model="${{ github.event.inputs.model || 'gemini/gemini-2.5-flash' }}"
           model_converted=$(echo "$model" | sed 's|^ollama/|openai/|')
-          
-          # Use openai provider if ollama was selected
-          provider="${{ steps.provider.outputs.provider }}"
-          if [ "$provider" = "ollama" ]; then
-            provider="openai"
-          fi
+          # Gets everything after the first '/'
+          model_converted=$(echo "$model_converted" | cut -d'/' -f2-)
           
           # Build config JSON dynamically
           config_json='{"provider": "'$provider'", "model": "'$model_converted'", "backend": "litellm"'
@@ -327,6 +329,12 @@ jobs:
       - name: Setup environment
         run: |
           # Set API keys as environment variables based on provider
+          if [[ "${{ steps.provider.outputs.provider }}" = "openrouter" || "${{ github.event.inputs.api_base_url }}" == *"openrouter.ai"* ]]; then
+            echo "OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}" >> $GITHUB_ENV
+          elif [[ "${{ steps.provider.outputs.provider }}" = "bedrock" || "${{ github.event.inputs.api_base_url }}" == *"bedrock"*"api.aws"* ]]; then
+            echo "AWS_BEARER_TOKEN_BEDROCK=${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}" >> $GITHUB_ENV
+          fi
+
           if [ "${{ steps.provider.outputs.provider }}" = "anthropic" ]; then
             echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" >> $GITHUB_ENV
           elif [ "${{ steps.provider.outputs.provider }}" = "gemini" ]; then
@@ -346,12 +354,8 @@ jobs:
             # For Ollama via OpenAI endpoint, set a dummy API key if needed
             echo "OPENAI_API_KEY=dummy" >> $GITHUB_ENV
           elif [ "${{ steps.provider.outputs.provider }}" = "openai" ]; then
-            # Check if using OpenRouter, AWS Bedrock, or local llama.cpp based on the api_base_url
-            if [[ "${{ github.event.inputs.api_base_url }}" == *"openrouter.ai"* ]]; then
-              echo "OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}" >> $GITHUB_ENV
-            elif [[ "${{ github.event.inputs.api_base_url }}" == *"bedrock"*"api.aws"* ]]; then
-              echo "AWS_BEARER_TOKEN_BEDROCK=${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}" >> $GITHUB_ENV
-            elif [[ "${{ github.event.inputs.api_base_url }}" == *"hive.van-duck.ts.net"* ]]; then
+            # Check if using local llama.cpp based on the api_base_url
+            if [[ "${{ github.event.inputs.api_base_url }}" != *"openai.com"* ]]; then
               echo "OPENAI_API_KEY=dummy" >> $GITHUB_ENV
             else
               echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> $GITHUB_ENV

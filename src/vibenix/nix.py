@@ -221,7 +221,7 @@ def eval_progress(previous_result: NixBuildResult, current_result: NixBuildResul
 
 def execute_build_and_add_to_stack(updated_code: str) -> Solution:
     """Update flake with new code, build it, and add result to error stack."""
-    commit_hash = update_flake(updated_code, do_commit=True)
+    commit_hash = update_flake(updated_code, commit_msg="build step")
     result = invoke_build(True)
     if result.success:
         result = invoke_build(False)

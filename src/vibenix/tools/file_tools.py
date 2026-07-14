@@ -77,8 +77,7 @@ def create_source_function_calls(store_path: str, prefix: str = "", dynamic_path
             return f"Error listing directory contents: {str(e)}"
 
     def read_file_content(relative_path: str, line_offset: int = 0, number_lines_to_read: int = MAX_LINES_TO_READ) -> str:
-        """Read the content of a file within the {source_description} given its relative path to the root directory.
-        This DOES NOT include viewing `package.nix` file, since it is outside the project source. Use the `view` tool instead. """
+        """Read the content of a file within the {source_description} given its relative path to the root directory."""
         print(f"📞 Function called: {prefix}read_file_content with path: ", relative_path)
         try:
             path = _validate_path(relative_path)
@@ -148,7 +147,7 @@ def create_source_function_calls(store_path: str, prefix: str = "", dynamic_path
             size_bytes /= 1024.0
         return f"{size_bytes:.2f} PB"
 
-    def search_inside_files(pattern: str, relative_path: str = ".") -> str: # custom_args: str = None
+    def search_inside_files(pattern: str, relative_path: str = ".", use_regex: bool = False) -> str: # custom_args: str = None
         """Search for a pattern inside files within the {source_description} using `ripgrep`.
         
         Args:
@@ -169,7 +168,10 @@ def create_source_function_calls(store_path: str, prefix: str = "", dynamic_path
                 # -n: Show line numbers
                 # -H: Show filenames
                 # -m 5: Max 5 matches per file
-                cmd = ["rg", "-n", "-H", "--color=never", "-m", "5", "--max-filesize=10M", "--", pattern, path]
+                cmd = ["rg", "-n", "-H", "--color=never", "-m", "5", "--max-filesize=10M"]
+                if not use_regex:
+                    cmd.append("-F")  # Treat pattern as fixed string (literal), not regex
+                cmd.extend(["--", pattern, str(path)])
             
             result = subprocess.run(cmd, text=True, capture_output=True, cwd=root_dir)
             
@@ -198,6 +200,9 @@ def create_source_function_calls(store_path: str, prefix: str = "", dynamic_path
         # Update name and docstring with prefix
         func.__name__ = f"{prefix}{func.__name__}"
         func.__doc__ = func.__doc__.replace("{source_description}", source_description)
+        if prefix == "project_":
+            func.__doc__ += """
+        There are no Nix files in the project source."""
         # Apply logging decorator
         func = log_function_call(func.__name__)(func) 
         funcs[i] = func

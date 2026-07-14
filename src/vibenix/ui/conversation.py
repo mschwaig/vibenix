@@ -36,8 +36,17 @@ class UIAdapter(ABC):
     """Abstract base class for UI adapters - all methods are synchronous from coordinator's perspective."""
     
     @abstractmethod
-    def ask_user(self, prompt: str) -> str:
-        """Ask the user for input and return the complete response."""
+    def ask_user(self, prompt: str, timeout: Optional[float] = None) -> Optional[str]:
+        """Ask the user for input and return the complete response.
+        
+        Args:
+            prompt: The prompt to show to the user.
+            timeout: Optional timeout in seconds. If None, wait indefinitely.
+                     If timeout expires, returns None.
+        
+        Returns:
+            The user's response, or None if timeout expired.
+        """
         pass
 
     @abstractmethod
@@ -72,9 +81,27 @@ class TerminalUIAdapter(UIAdapter):
     def __init__(self):
         pass
     
-    def ask_user(self, prompt: str) -> str:
-        """Ask user for input via terminal."""
+    def ask_user(self, prompt: str, timeout: Optional[float] = None) -> Optional[str]:
+        """Ask user for input via terminal with optional timeout.
+        
+        Args:
+            prompt: The prompt to show to the user.
+            timeout: Optional timeout in seconds. If None, wait indefinitely.
+        
+        Returns:
+            The user's response, or None if timeout expired.
+        """
+        import select
+        import sys
+        
         self.show_message(Message(Actor.COORDINATOR, prompt))
+        
+        if timeout is not None:
+            # Use select to implement timeout
+            ready, _, _ = select.select([sys.stdin], [], [], timeout)
+            if not ready:
+                self.show_message(Message(Actor.COORDINATOR, f"⏱️ Timeout after {timeout}s waiting for response"))
+                return None
         
         # Simple synchronous input
         response = input("")
@@ -179,6 +206,22 @@ def ask_user_multiline(prompt_text: str):
         
         return wrapper
     return decorator
+
+
+def ask_user_direct(prompt: str, timeout: Optional[float] = None) -> Optional[str]:
+    """Directly ask the user for input with optional timeout.
+    
+    Unlike the ask_user decorator, this function can be called directly.
+    
+    Args:
+        prompt: The prompt to show to the user.
+        timeout: Optional timeout in seconds. If None, wait indefinitely.
+    
+    Returns:
+        The user's response, or None if timeout expired.
+    """
+    adapter = get_ui_adapter()
+    return adapter.ask_user(prompt, timeout=timeout)
 
 
 def coordinator_message(content: str):

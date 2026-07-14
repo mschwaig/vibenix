@@ -6,9 +6,10 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 from vibenix.ccl_log import get_logger, log_function_call
+from typing import Optional
 
 @log_function_call("search_nixpkgs_for_package_semantic")
-def search_nixpkgs_for_package_semantic(query: str, package_set: str = None) -> str:
+def search_nixpkgs_for_package_semantic(query: str, package_set: Optional[str] = None) -> str:
     """Search the nixpkgs repository using semantic similarity with embeddings.
     
     Args:
@@ -21,7 +22,7 @@ def search_nixpkgs_for_package_semantic(query: str, package_set: str = None) -> 
     print(f"📞 Function called: search_nixpkgs_for_package_semantic with query: {query}, package_set: {package_set}")
     return _search_nixpkgs_for_package_semantic(query, package_set)
 
-def _search_nixpkgs_for_package_semantic(query: str, package_set: str = None) -> str:
+def _search_nixpkgs_for_package_semantic(query: str, package_set: Optional[str] = None) -> str:
     """Search the nixpkgs repository using semantic similarity with embeddings.
     
     Args:

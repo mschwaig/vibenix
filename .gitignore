@@ -1,6 +1,7 @@
 /app/secret_keys.py
-/result
+**/result
 __pycache__
-/cachedir
+**/cachedir
 /.direnv
 .vscode
+*.ccl

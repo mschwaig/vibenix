@@ -22,8 +22,16 @@ class TextualUIAdapter(UIAdapter):
         """Set the future that will be resolved when user provides input."""
         self.user_input_future = future
     
-    def ask_user(self, prompt: str) -> str:
-        """Ask the user for input via the textual interface."""
+    def ask_user(self, prompt: str, timeout: Optional[float] = None) -> Optional[str]:
+        """Ask the user for input via the textual interface.
+        
+        Args:
+            prompt: The prompt to show to the user.
+            timeout: Optional timeout in seconds. If None, wait indefinitely.
+        
+        Returns:
+            The user's response, or None if timeout expired.
+        """
         # Check if this is a progress evaluation request
         if "Please evaluate the build progress" in prompt and "Previous error:" in prompt:
             return self._handle_progress_evaluation(prompt)
@@ -52,8 +60,13 @@ class TextualUIAdapter(UIAdapter):
         
         self.app.call_from_thread(setup_future)
         
-        # Wait for response
-        response_event.wait()
+        # Wait for response with optional timeout
+        got_response = response_event.wait(timeout=timeout)
+        if not got_response:
+            # Timeout expired, show message and return None
+            self.show_message(Message(Actor.COORDINATOR, f"⏱️ Timeout after {timeout}s waiting for response"))
+            return None
+        
         response = response_container[0]
         
         # Show user's response

@@ -6,7 +6,7 @@ import re
 
 from vibenix.ccl_log import log_function_call
 
-@log_function_call("find_nix_packages")
+#@log_function_call("find_nix_packages")
 def find_nix_packages(file_path: str, regex: bool = False, exact_match: bool = False, limit: int = 50) -> tuple[List[str], int, int]:
     """
     Search for Nix packages that provide a given file path.
@@ -31,17 +31,6 @@ def find_nix_packages(file_path: str, regex: bool = False, exact_match: bool = F
     
     cmd.append(file_path)
     
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-    except subprocess.CalledProcessError as e:
-        # If nix-locate fails, return empty list
-        return [], 0, 0
-    
     # Parse the output
     packages = []
     seen_packages = set()
@@ -50,54 +39,65 @@ def find_nix_packages(file_path: str, regex: bool = False, exact_match: bool = F
     all_direct_packages = set()
     all_indirect_packages = set()
     
-    for line in result.stdout.strip().split('\n'):
-        if not line:
-            continue
+    with subprocess.Popen(
+        cmd, 
+        stdout=subprocess.PIPE, 
+        stderr=subprocess.PIPE, 
+        text=True, # Decodes line by line
+        errors="replace"
+    ) as proc:
+        for line in proc.stdout:
+            if not line:
+                continue
+            line = line.strip()
+
+            # Parse the line format: (package.output) or package.output  size type /nix/store/.../path
+            match = re.match(r'^(\(?)([^)]+?)(\)?)\s+[\d,]+\s+[rxds]\s+(/nix/store/[^/]+)(.*)', line)
+            if not match:
+                continue
+                
+            has_parens = bool(match.group(1))
+            package_attr = match.group(2)
+            store_path_prefix = match.group(4)
+            relative_path = match.group(5)
             
-        # Parse the line format: (package.output) or package.output  size type /nix/store/.../path
-        match = re.match(r'^(\(?)([^)]+?)(\)?)\s+[\d,]+\s+[rxds]\s+(/nix/store/[^/]+)(.*)', line)
-        if not match:
-            continue
+            # Extract base package name for counting
+            base_package = package_attr[:-4] if package_attr.endswith('.out') else package_attr
             
-        has_parens = bool(match.group(1))
-        package_attr = match.group(2)
-        store_path_prefix = match.group(4)
-        relative_path = match.group(5)
-        
-        # Extract base package name for counting
-        base_package = package_attr[:-4] if package_attr.endswith('.out') else package_attr
-        
-        # Track package for counting
-        if has_parens:
-            all_indirect_packages.add(base_package)
-        else:
-            all_direct_packages.add(base_package)
-        
-        # Create the Nix expression if under limit
-        if len(packages) < limit:
+            # Track package for counting
             if has_parens:
-                # Package is indirect dependency, less reliable
-                if package_attr.endswith('.out'):
-                    # Remove .out suffix as it's the default
-                    base_package = package_attr[:-4]
-                    nix_expr = f'# (indirect) ${{pkgs.{base_package}}}{relative_path}'
-                else:
-                    # Keep other suffixes like .dev, .bin, .lib
-                    nix_expr = f'# (indirect) ${{pkgs.{package_attr}}}{relative_path}'
+                all_indirect_packages.add(base_package)
             else:
-                # Direct package reference
-                if package_attr.endswith('.out'):
-                    # Remove .out suffix as it's the default
-                    base_package = package_attr[:-4]
-                    nix_expr = f'${{pkgs.{base_package}}}{relative_path}'
-                else:
-                    # Keep other suffixes like .dev, .bin, .lib
-                    nix_expr = f'${{pkgs.{package_attr}}}{relative_path}'
+                all_direct_packages.add(base_package)
             
-            # Avoid duplicates
-            if nix_expr not in seen_packages:
-                packages.append(nix_expr)
-                seen_packages.add(nix_expr)
+            # Create the Nix expression if under limit
+            if len(packages) < limit:
+                if has_parens:
+                    # Package is indirect dependency, less reliable
+                    if package_attr.endswith('.out'):
+                        # Remove .out suffix as it's the default
+                        base_package = package_attr[:-4]
+                        nix_expr = f'# (indirect) ${{pkgs.{base_package}}}{relative_path}'
+                    else:
+                        # Keep other suffixes like .dev, .bin, .lib
+                        nix_expr = f'# (indirect) ${{pkgs.{package_attr}}}{relative_path}'
+                else:
+                    # Direct package reference
+                    if package_attr.endswith('.out'):
+                        # Remove .out suffix as it's the default
+                        base_package = package_attr[:-4]
+                        nix_expr = f'${{pkgs.{base_package}}}{relative_path}'
+                    else:
+                        # Keep other suffixes like .dev, .bin, .lib
+                        nix_expr = f'${{pkgs.{package_attr}}}{relative_path}'
+                
+                # Avoid duplicates
+                if nix_expr not in seen_packages:
+                    packages.append(nix_expr)
+                    seen_packages.add(nix_expr)
+            else:
+                proc.terminate()
+                break
     
     return packages, len(all_direct_packages), len(all_indirect_packages)
 

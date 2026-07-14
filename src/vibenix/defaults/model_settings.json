@@ -7,5 +7,19 @@
     },
     "openai": {
         "parallel_tool_calls": false
+    },
+    "openrouter": {
+		"openrouter_transforms": [
+			"middle-out"
+		],
+        "extra_body": {
+            "transforms": ["middle-out"]
+        }
+	},
+    "bedrock": {
+        "bedrock_cache_messages": true,
+        "bedrock_cache_tool_definitions": true,
+        "bedrock_cache_messages": true,
+        "parallel_tool_calls": false
     }
 }

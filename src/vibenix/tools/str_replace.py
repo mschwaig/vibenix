@@ -22,40 +22,58 @@ def str_replace(old_str: str, new_str: str, occurrence: int = 1) -> str:
     return _str_replace(old_str, new_str, occurrence)
 
 
-def _str_replace(old_str: str, new_str: str, occurrence: int = 1) -> str:
+def _str_replace(old_str: str, new_str: str, occurrence: int = None) -> str:
     """Replace text in the current packaging expression."""
     
     try:
         # Get current package contents
         current_content = get_package_contents()
-        previous_content = current_content
         
         if not old_str:
-            error_msg = f"Error: `old_str` cannot be empty."
-            return error_msg
-        count = current_content.count(old_str)
-        if count == 0:
-            return f"Error: Text not found in packaging expression."
+            return f"Error replacing: `old_str` cannot be empty."
 
         if old_str == new_str:
-            return f"Error: `old_str` and `new_str` are identical; no changes made."
+            return f"Error replacing: `old_str` and `new_str` are identical; no changes made."
+
+        count = current_content.count(old_str)
+        if count == 0:
+            import re
+            # Use regex instead for flexible whitespace matching
+            escaped_old = re.escape(old_str.strip())
+                
+            # Replace literal spaces in the escaped string with \s+ (one or more whitespace)
+            pattern = escaped_old.replace(r'\ ', r'\s+')
+            matches = list(re.finditer(pattern, current_content))
+            
+            if not matches:
+                return "Error replacing: Text not found in packaging expression (even with flexible whitespace)."
+            
+            if len(matches) < occurrence:
+                return f"Error replacing: Only found {len(matches)} occurrences."
+            
+            # Perform the replacement at the specific match location
+            match = matches[occurrence - 1]
+            new_content = (
+                current_content[:match.start()] + 
+                new_str + 
+                current_content[match.end():]
+            )
+            
+            update_flake(new_content)
+            return f"Successfully replaced text."
 
         # Validate occurrence parameter
-        if occurrence < 1:
-            error_msg = f"Error: `occurrence` must be >= 1, got {occurrence}"
-            return error_msg
-            
-        if occurrence > count:
-            error_msg = f"Error: Requested occurrence {occurrence} but only found {count} matches.\n"
-            error_msg += "All occurrences:\n"
-            for i, line in enumerate(current_content.splitlines(), start=1):
-                if old_str in line:
-                    error_msg += f"{i:>3}: {line}\n"
-            return error_msg
-        
-        # Replace the specified occurrence
-        parts = current_content.split(old_str)
-        if len(parts) >= occurrence + 1:
+        if count > 1 and occurrence:
+            if occurrence not in range(1, count + 1):
+                error_msg = f"Error: Requested occurrence {occurrence} outside range 1 to {count}.\n"
+                error_msg += "All occurrences:\n"
+                for i, line in enumerate(current_content.splitlines(), start=1):
+                    if old_str in line:
+                        error_msg += f"{i:>3}: {line}\n"
+                return error_msg
+
+            # Replace the specified occurrence
+            parts = current_content.split(old_str)
             updated_content = old_str.join(parts[:occurrence]) + new_str + old_str.join(parts[occurrence:])
         else:
             updated_content = current_content.replace(old_str, new_str)
@@ -70,29 +88,8 @@ def _str_replace(old_str: str, new_str: str, occurrence: int = 1) -> str:
         #    return error_msg
 
         update_flake(updated_content)
-        
-        # Show updated lines (and ones with changed line numbers)
-        previous_lines = previous_content.splitlines()
-        updated_lines = updated_content.splitlines()
-        return_msg = None
-        if len(previous_lines) == len(updated_lines):
-            diff_lines = [f"{i:>3}: {updated_lines[i]}" for i in range(len(updated_lines)) if previous_lines[i] != updated_lines[i]]
-            diff = "\n".join(diff_lines)
-            return_msg = f"Updated lines:\n```\n{diff}\n```"
-        else:
-            # Updated lines get * marker, other lines are shown for context (updated line number)
-            new_str_idx = updated_content.index(new_str)
-            first_diff_index = updated_content[:new_str_idx].count("\n")
-            diff_lines = []
-            for i, line in enumerate(updated_lines[first_diff_index:], start=first_diff_index):
-                if i < first_diff_index+len(new_str.splitlines()):
-                    diff_lines += [f"*{i + 1:>3}: {line}"]
-                else:
-                    diff_lines += [f" {i + 1:>3}: {line}"]
-            diff = "\n".join(diff_lines)
-            return_msg = f"Showing lines starting from {first_diff_index + 1}:\n```\n{diff}\n```"
 
-        return f"Successfully replaced text. {return_msg}"
+        return f"Successfully replaced text."
         
     except Exception as e:
         error_msg = f"Error during string replacement: {str(e)}"

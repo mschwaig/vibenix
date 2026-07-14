@@ -1,0 +1,664 @@
+name: Run Maintenance Batch
+
+on:
+  workflow_dispatch:
+    inputs:
+      package_ids:
+        description: 'Package IDs to run (e.g., "1-10,12,19"). Max 254 IDs. Leave empty for default (1-5)'
+        required: false
+        default: '1-5'
+        type: string
+      dataset:
+        description: 'Path to CSV dataset file in research/ (e.g., maintenance_feb.csv)'
+        required: false
+        default: 'maintenance_feb.csv'
+        type: string
+      update_lock:
+        description: 'Pass --update-lock (True/False) to maintenance runs'
+        required: false
+        default: false
+        type: boolean
+      upgrade_lock:
+        description: 'Pass --upgrade-lock (True/False) to maintenance runs'
+        required: false
+        default: false
+        type: boolean
+      concurrent_jobs:
+        description: 'Number of jobs to run in parallel (1 to avoid rate limits)'
+        required: false
+        default: '1'
+        type: number
+      gemini_api_key:
+        description: 'Which Gemini API key to use'
+        required: false
+        default: 'key1'
+        type: choice
+        options:
+          - key1
+          - key2
+          - key3
+      model:
+        description: 'Model to use (e.g., anthropic/claude-3-5-haiku-20241022, ollama/qwen2.5-coder:32b, gemini/gemini-2.5-flash, or openai/gpt-4.1-mini-2025-04-14)'
+        required: false
+        default: 'gemini/gemini-2.5-flash'
+        type: string
+      vibenix_settings:
+        description: 'Vibenix settings as JSON (e.g., {"tools": ["get_builder_packages"]})'
+        required: false
+        type: string
+      api_base_url:
+        description: 'API base URL for OpenAI-compatible endpoints'
+        required: false
+        default: 'https://api.openai.com'
+        type: choice
+        options:
+          - https://api.openai.com
+          - https://openrouter.ai/api
+          - https://bedrock-mantle.eu-north-1.api.aws
+          - http://hive.van-duck.ts.net:11434
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.build-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v15
+        with:
+          name: vibenix
+          authToken: '${{ secrets.CACHIX_TOKEN }}'
+
+      - name: Build vibenix environment
+        run: |
+          nix develop .# --command echo "Development environment ready"
+
+      - name: Generate vibenix cache
+        run: |
+          nix develop -c python -c '''
+          from vibenix.tools.search_related_packages import _get_builder_functions
+          from vibenix import config
+          from vibenix.flake import init_flake
+          config.init()
+          init_flake()
+          _get_builder_functions()'''
+
+      - name: Upload cache artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vibenix-cache
+          path: cachedir/
+
+      - name: Create setup summary
+        run: |
+          echo "#### Workflow Inputs" >> $GITHUB_STEP_SUMMARY
+          echo "- **Package IDs**: ${{ github.event.inputs.package_ids || '1-5 (default)' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dataset**: research/${{ github.event.inputs.dataset || 'maintenance_02_02_2025.csv (default)' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Update lock**: ${{ github.event.inputs.update_lock || 'false (default)' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Upgrade lock**: ${{ github.event.inputs.upgrade_lock || 'false (default)' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Model**: ${{ github.event.inputs.model || 'gemini/gemini-2.5-flash (default)' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Concurrent jobs**: ${{ github.event.inputs.concurrent_jobs || '1 (default)' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Gemini API key**: ${{ github.event.inputs.gemini_api_key || 'key1 (default)' }}" >> $GITHUB_STEP_SUMMARY
+
+          # Add API base URL if not default
+          if [ "${{ github.event.inputs.api_base_url }}" != "https://api.openai.com" ]; then
+            echo "- **API base URL**: ${{ github.event.inputs.api_base_url || 'https://api.openai.com' }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### Vibenix Settings" >> $GITHUB_STEP_SUMMARY
+
+          # Pretty-print vibenix settings if provided, otherwise get defaults from vibenix
+          if [ -n "${{ github.event.inputs.vibenix_settings }}" ]; then
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            echo '${{ github.event.inputs.vibenix_settings }}' | jq '.' >> $GITHUB_STEP_SUMMARY || echo '${{ github.event.inputs.vibenix_settings }}' >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            nix develop -c python -c 'import json; from vibenix.defaults import DEFAULT_VIBENIX_SETTINGS, settings_to_json_format; from vibenix.defaults.vibenix_settings import deep_diff; diff = deep_diff(DEFAULT_VIBENIX_SETTINGS, DEFAULT_VIBENIX_SETTINGS); print(json.dumps(settings_to_json_format(diff), indent=2))' >> $GITHUB_STEP_SUMMARY || echo "{}"  >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Build project matrix from CSV
+        id: build-matrix
+        run: |
+          set -euo pipefail
+          python3 -c "
+          import csv
+          import json
+          import sys
+
+          # Add scripts directory to path to import id_range_parser
+          sys.path.insert(0, 'scripts')
+          from id_range_parser import parse_id_ranges, validate_id_range_constraints
+
+          matrix_data = []
+
+          # Dataset path and directory (for pre-extracted package files)
+          dataset_filename = '${{ github.event.inputs.dataset || 'maintenance_02_02_2025.csv' }}'
+          dataset_path = f'research/{dataset_filename}'
+          # Directory with pre-extracted .nix files (same name as CSV without extension)
+          dataset_dir = 'research/' + dataset_filename.rsplit('.', 1)[0]
+
+          # Read all rows indexed by random_order ID
+          rows_by_id = {}
+          with open(dataset_path, 'r') as f:
+              reader = csv.DictReader(f)
+              for row in reader:
+                  try:
+                      row_id = int(row['random_order'])
+                      rows_by_id[row_id] = row
+                  except (ValueError, KeyError):
+                      print(f'Warning: Skipping row without valid random_order ID', file=sys.stderr)
+
+          # Parse package ID ranges
+          package_ids_input = '${{ github.event.inputs.package_ids || '1-5' }}'.strip()
+
+          if package_ids_input:
+              # Parse the ID range specification
+              try:
+                  selected_ids = parse_id_ranges(package_ids_input)
+                  # Validate constraints (max 254 IDs)
+                  max_id = max(rows_by_id.keys()) if rows_by_id else 1
+                  validate_id_range_constraints(selected_ids, max_count=254, valid_range=(1, max_id))
+              except ValueError as e:
+                  raise ValueError(f'Invalid package_ids input: {e}')
+          else:
+              # Default: IDs 1-5
+              selected_ids = [1, 2, 3, 4, 5]
+
+          # Build matrix data from selected IDs
+          for row_id in selected_ids:
+              if row_id in rows_by_id:
+                  row = rows_by_id[row_id]
+                  # Create a project identifier from the package path
+                  package_path = row['package_path']
+                  # Extract package name from path (e.g., pkgs/by-name/de/dependabot-cli/package.nix -> dependabot-cli)
+                  parts = package_path.split('/')
+                  if 'by-name' in parts:
+                      # by-name format: pkgs/by-name/XX/package-name/package.nix
+                      package_name = parts[-2] if parts[-1] == 'package.nix' else parts[-1]
+                  else:
+                      # Other formats: use the second to last part
+                      package_name = parts[-2] if len(parts) >= 2 else parts[-1].replace('.nix', '')
+                  
+                  project_name = f'{row_id}-{package_name}'
+                  
+                  matrix_data.append({
+                      'id': row_id,
+                      'project': project_name,
+                      'package_path': package_path,
+                      'parent_commit': row['parent_commit'],
+                      'pre_version': row['pre_version'],
+                      'post_version': row['post_version'],
+                      'post_src_ref': row['post_src_ref'],
+                      'pre_nixpkgs_base': row['pre_nixpkgs_base'],
+                      'post_nixpkgs_base': row['post_nixpkgs_base'],
+                      'pname': row['pre_pname'],
+                      'dataset_dir': dataset_dir,
+                      'package_attr': row['package_attr'],
+                      'callpkg_set': '' if len(row['package_attr'].split('.')) < 2 else row['package_attr'].rsplit('.', 1)[0] + '.'
+                  })
+              else:
+                  print(f'Warning: ID {row_id} not found in dataset', file=sys.stderr)
+
+          if not matrix_data:
+              print('::error::No valid packages found for the specified IDs', file=sys.stderr)
+              sys.exit(1)
+
+          matrix = {'include': matrix_data}
+
+          with open('matrix.json', 'w') as f:
+              json.dump(matrix, f)
+
+          print(f'matrix={json.dumps(matrix)}')
+          "
+          echo "matrix=$(cat matrix.json)" >> $GITHUB_OUTPUT
+
+  maintenance:
+    needs: setup
+    runs-on: ubuntu-latest
+    name: "${{ matrix.id }}: ${{ matrix.pname }}"
+    timeout-minutes: 65
+    strategy:
+      matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
+      max-parallel: ${{ fromJson(github.event.inputs.concurrent_jobs || '1') }}
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: vibenix-cache
+          path: cachedir/
+
+      - name: Set provider
+        id: provider
+        run: |
+          # Determine provider from model input
+          model="${{ github.event.inputs.model || 'gemini/gemini-2.5-flash' }}"
+          if [[ "$model" == ollama/* ]]; then
+            provider="openai"
+          elif [[ "$model" == openai/* || "$model" == gpt-* ]]; then
+            provider="openai"
+          elif [[ "$model" == anthropic/* || "$model" == claude-* ]]; then
+            provider="anthropic"
+          elif [[ "$model" == gemini/* || "$model" == *gemini* ]]; then
+            provider="gemini"
+          else
+            provider=$(echo "$model" | cut -d'/' -f1)
+          fi
+          echo "provider=$provider" >> $GITHUB_OUTPUT
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v15
+        with:
+          name: vibenix
+          authToken: '${{ secrets.CACHIX_TOKEN }}'
+
+      - name: Tailscale
+        if: >-
+          (steps.provider.outputs.provider == 'ollama' || 
+           steps.provider.outputs.provider == 'openai') && 
+          env.TS_ID != ''
+        uses: tailscale/github-action@v3
+        env:
+          TS_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:oauth-client-gh-action-hydralisk-ollama
+
+      - name: Create vibenix config
+        run: |
+          mkdir -p ~/.vibenix
+          
+          provider="${{ steps.provider.outputs.provider }}"
+          # Convert ollama/modelname to openai/modelname (no-op for other providers)
+          model="${{ github.event.inputs.model || 'gemini/gemini-2.5-flash' }}"
+          model_converted=$(echo "$model" | sed 's|^ollama/|openai/|')
+          # Gets everything after the first '/'
+          model_converted=$(echo "$model_converted" | cut -d'/' -f2-)
+          
+          # Build config JSON dynamically
+          config_json='{"provider": "'$provider'", "model": "'$model_converted'", "backend": "litellm"'
+          
+          # Add API base URL
+          config_json="${config_json}, \"openai_api_base\": \"${{ github.event.inputs.api_base_url || 'https://api.openai.com' }}\""
+          
+          config_json="${config_json}}"
+          
+          echo "$config_json" > ~/.vibenix/config.json
+
+      - name: Create vibenix settings
+        run: |
+          VIBENIX_SETTINGS='''${{ github.event.inputs.vibenix_settings }}'''
+          # Set vibenix settings from input into config file (only if provided)
+          if [ -n "$VIBENIX_SETTINGS" ]; then
+            mkdir -p ~/.vibenix
+            echo '''${{ github.event.inputs.vibenix_settings }}''' > ~/.vibenix/vibenix_settings.json
+          fi
+
+      - name: Setup environment
+        run: |
+          # Set API keys as environment variables based on provider
+          if [[ "${{ steps.provider.outputs.provider }}" = "openrouter" || "${{ github.event.inputs.api_base_url }}" == *"openrouter.ai"* ]]; then
+            echo "OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}" >> $GITHUB_ENV
+          elif [[ "${{ steps.provider.outputs.provider }}" = "bedrock" || "${{ github.event.inputs.api_base_url }}" == *"bedrock"*"api.aws"* ]]; then
+            echo "AWS_BEARER_TOKEN_BEDROCK=${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}" >> $GITHUB_ENV
+          fi
+
+          if [ "${{ steps.provider.outputs.provider }}" = "anthropic" ]; then
+            echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" >> $GITHUB_ENV
+          elif [ "${{ steps.provider.outputs.provider }}" = "gemini" ]; then
+            # Select Gemini API key based on choice
+            case "${{ github.event.inputs.gemini_api_key || 'key1' }}" in
+              key1)
+                echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> $GITHUB_ENV
+                ;;
+              key2)
+                echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY2 }}" >> $GITHUB_ENV
+                ;;
+              key3)
+                echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY3 }}" >> $GITHUB_ENV
+                ;;
+            esac
+          elif [ "${{ steps.provider.outputs.provider }}" = "ollama" ]; then
+            # For Ollama via OpenAI endpoint, set a dummy API key if needed
+            echo "OPENAI_API_KEY=dummy" >> $GITHUB_ENV
+          elif [ "${{ steps.provider.outputs.provider }}" = "openai" ]; then
+            # Check if using local llama.cpp based on the api_base_url
+            if [[ "${{ github.event.inputs.api_base_url }}" != *"openai.com"* ]]; then
+              echo "OPENAI_API_KEY=dummy" >> $GITHUB_ENV
+            else
+              echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> $GITHUB_ENV
+            fi
+          fi
+
+          # Set Github token in nix config
+          echo "NIX_CONFIG=access-tokens = github.com=${{ secrets.GH_TOKEN }}" >> $GITHUB_ENV
+
+      - name: Prepare maintenance directory from pre-extracted files
+        id: prepare
+        run: |
+          # Create maintenance directory
+          mkdir -p maintenance-input
+
+          ATTR="${{ matrix.package_attr }}"
+          
+          if [[ "$ATTR" == *"."* ]]; then
+            # Nested package (e.g., python3Packages.sasmodels)
+            PKG_SET="${ATTR%.*}"
+            PKG_NAME="${ATTR##*.}"
+            
+            # Construct the nested overlay
+            OVERLAY_EXPR="$PKG_SET = prev.$PKG_SET // { $PKG_NAME = final.$PKG_SET.callPackage ./package.nix { }; };"
+          else
+            # Top-level package
+            OVERLAY_EXPR="$ATTR = final.callPackage ./package.nix { };"
+          fi
+
+          # 2. Generate the flake.nix
+          cat > maintenance-input/flake.nix <<FLAKE_EOF
+          {
+            inputs.nixpkgs.url = "github:NixOS/nixpkgs/${{ matrix.post_nixpkgs_base }}";
+
+            outputs = { self, nixpkgs, ... }:
+              let
+                supportedSystems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
+                forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
+              in
+              {
+                nixpkgs-src = nixpkgs.outPath;
+
+                packages = forAllSystems (system:
+                  let
+                    pkgs = import nixpkgs {
+                      inherit system;
+                      config = { allowUnfree = true; };
+                      overlays = [
+                        (final: prev: {
+                          # Injected dynamic overlay
+                          $OVERLAY_EXPR
+                        })
+                      ];
+                    };
+                  in
+                  {
+                    # Access the package dynamically using lib.getAttrFromPath
+                    #default = nixpkgs.lib.getAttrFromPath (nixpkgs.lib.splitString "." "${{ matrix.package_attr }}") pkgs;
+                    default = pkgs.${{ matrix.package_attr }};
+                  }
+                );
+              };
+          }
+          FLAKE_EOF
+          
+          # Fetch packaging file dynamically from nixpkgs at the target commit
+          # Try the recorded package path, and fall back to common file names
+          nixpkgs_commit="${{ matrix.post_nixpkgs_base }}"
+          pkg_path="${{ matrix.package_path }}"
+
+          url="https://cdn.jsdelivr.net/gh/NixOS/nixpkgs@$nixpkgs_commit/$pkg_path"
+          echo "Attempting to fetch: $url"
+
+          fetched=0
+          if curl -fsS "$url" -o maintenance-input/package.nix; then
+            echo "Fetched package file from $url"
+            fetched=1
+            break
+          else
+            echo "Not found: $url"
+          fi
+
+          if [ "$fetched" -ne 1 ]; then
+            echo "ERROR: Could not fetch package file from nixpkgs at commit $nixpkgs_commit for path $pkg_path"
+            exit 1
+          fi
+
+          echo "package_dir=maintenance-input" >> $GITHUB_OUTPUT
+
+      - name: Run vibenix maintenance
+        id: run-vibenix
+        run: |
+          set -o pipefail
+
+          log_file="${{ matrix.project }}.log"
+          echo "status=failed" >> $GITHUB_OUTPUT
+
+          # Create output directory for this run
+          mkdir -p output
+
+          echo "Running maintenance for package: ${{ matrix.pname }}"
+          echo "Pre-version: ${{ matrix.pre_version }}"
+          echo "Target version (post): ${{ matrix.post_version }}"
+
+          CMD=(
+            nix develop .# -c python -m vibenix
+            --raw
+            --output-dir output
+            --maintenance "${{ steps.prepare.outputs.package_dir }}"
+            --revision "${{ matrix.post_src_ref }}"
+            --target-version "${{ matrix.post_version }}"
+            --nixpkgs-commit "${{ matrix.post_nixpkgs_base }}"
+          )
+
+          if [[ "${{ github.event.inputs.update_lock }}" == "true" ]]; then
+            CMD+=(--update-lock True)
+          fi
+
+          if [[ "${{ github.event.inputs.upgrade_lock }}" == "true" ]]; then
+            CMD+=(--upgrade-lock True)
+          fi
+
+          "${CMD[@]}" 2>&1 | tee "$log_file"
+          exit_code=$?
+
+          # Check if the command succeeded AND produced a package.nix file
+          if [ $exit_code -eq 0 ]; then
+            # Command didn't fail, but we need to verify it actually created a package
+            if [ -d output ]; then
+              # Find any package.nix file in subdirectories
+              package_nix_path=$(find output -name "package.nix" -type f | head -n1)
+              if [ -n "$package_nix_path" ]; then
+                # Extract package name from path (e.g., output/packagename/package.nix -> packagename)
+                package_name=$(basename $(dirname "$package_nix_path"))
+                echo "status=success" >> $GITHUB_OUTPUT
+                echo "package_name=$package_name" >> $GITHUB_OUTPUT
+              else
+                echo "status=failed" >> $GITHUB_OUTPUT
+                echo "Command succeeded but no package.nix was generated"
+                exit 1  # Fail the step
+              fi
+            else
+              echo "status=failed" >> $GITHUB_OUTPUT
+              echo "Command succeeded but no output directory was created"
+              exit 1  # Fail the step
+            fi
+          else
+            echo "status=failed" >> $GITHUB_OUTPUT
+            echo "Exit code: $exit_code"
+            echo "=== Combined log ==="
+            head -n 50 "$log_file" || echo "No log found"
+            exit $exit_code  # Propagate the original exit code
+          fi
+
+          echo "log_file=$log_file" >> $GITHUB_OUTPUT
+
+      - name: Prepare artifact
+        if: always()
+        run: |
+          mkdir -p artifact-${{ matrix.project }}
+          cp "${{ matrix.project }}.log" "artifact-${{ matrix.project }}/" 2>/dev/null || true
+          if [ -d output ]; then
+            cp -r output/* artifact-${{ matrix.project }}/
+          fi
+          cp ~/.vibenix/config.json artifact-${{ matrix.project }}/ 2>/dev/null || true
+          echo "${{ steps.run-vibenix.outputs.status || 'unknown' }}" > "artifact-${{ matrix.project }}/status.txt" 2>/dev/null || true
+          
+          # Save metadata for reference
+          cat > "artifact-${{ matrix.project }}/metadata.json" << EOF
+          {
+            "id": ${{ matrix.id }},
+            "pname": "${{ matrix.pname }}",
+            "pre_version": "${{ matrix.pre_version }}",
+            "post_version": "${{ matrix.post_version }}",
+            "parent_commit": "${{ matrix.parent_commit }}",
+            "package_path": "${{ matrix.package_path }}"
+          }
+          EOF
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vibenix-maintenance-${{ matrix.project }}
+          path: artifact-${{ matrix.project }}/
+          retention-days: 3
+
+      - name: Summarize run
+        if: always()
+        run: |
+          status="${{ steps.run-vibenix.outputs.status || 'failed' }}"
+          log_file="${{ matrix.project }}.log"
+          if [ "$status" = "success" ]; then
+            status_emoji="✅"; status_text="SUCCESS"
+          else
+            status_emoji="❌"; status_text="FAILED"
+          fi
+
+          echo "### ${status_emoji} ${{ matrix.id }}: ${{ matrix.pname }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Status: **${status_text}**" >> $GITHUB_STEP_SUMMARY
+          echo "- Package path: ${{ matrix.package_path }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Pre-version: ${{ matrix.pre_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Target version: ${{ matrix.post_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Parent commit: \`${{ matrix.parent_commit }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Update lock: ${{ github.event.inputs.update_lock }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Upgrade lock: ${{ github.event.inputs.upgrade_lock }}" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ steps.run-vibenix.outputs.package_name }}" ]; then
+            echo "- Generated package name: ${{ steps.run-vibenix.outputs.package_name }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ -f "$log_file" ]; then
+            echo "- Log size: $(wc -c < "$log_file") bytes" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ -f "output/run.ccl" ]; then
+            # Extract total cost from run.ccl if present
+            total_cost=$(grep "total_cost =" "output/run.ccl" | tail -1 | cut -d'=' -f2 | tr -d ' ')
+            if [ -n "$total_cost" ]; then
+              echo "- Total API cost: \$$total_cost" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+          # On success: show package.nix contents
+          if [ "$status" = "success" ]; then
+            # Try the expected path first, then fall back to finding any package.nix
+            if [ -f "output/${{ steps.run-vibenix.outputs.package_name }}/package.nix" ]; then
+              package_nix_path="output/${{ steps.run-vibenix.outputs.package_name }}/package.nix"
+            else
+              package_nix_path=$(find output -name "package.nix" -type f | head -n1)
+            fi
+            
+            if [ -n "$package_nix_path" ] && [ -f "$package_nix_path" ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "#### Generated package.nix:" >> $GITHUB_STEP_SUMMARY
+              echo '```nix' >> $GITHUB_STEP_SUMMARY
+              cat "$package_nix_path" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+          # On failure: show tail of log
+          if [ "$status" != "success" ] && [ -f "$log_file" ] && [ -s "$log_file" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "#### Log tail (last 50 lines)" >> $GITHUB_STEP_SUMMARY
+            echo '<pre>' >> $GITHUB_STEP_SUMMARY
+            tail -n 50 "$log_file" >> $GITHUB_STEP_SUMMARY
+            echo '</pre>' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Fail job if maintenance failed
+        if: steps.run-vibenix.outputs.status == 'failed'
+        run: |
+          echo "Maintenance failed, failing the job"
+          echo "Status was: ${{ steps.run-vibenix.outputs.status }}"
+          exit 1
+
+  aggregate-results:
+    needs: maintenance
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: vibenix-maintenance-*
+
+      - name: Aggregate results
+        run: |
+          echo "## Maintenance Batch Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          total=0
+          success=0
+          failed=0
+          total_cost=0
+
+          shopt -s nullglob
+          for dir in artifacts/vibenix-maintenance-*; do
+            if [ -d "$dir" ]; then
+              total=$((total + 1))
+              
+              # Check if there's a package.nix file in any subdirectory
+              package_nix_found=$(find "$dir" -name "package.nix" -type f 2>/dev/null | head -1)
+              
+              if [ -n "$package_nix_found" ]; then
+                success=$((success + 1))
+              else
+                failed=$((failed + 1))
+              fi
+              
+              # Extract cost from run.ccl if it exists
+              if [ -f "$dir/run.ccl" ]; then
+                cost=$(grep "total_cost =" "$dir/run.ccl" | tail -1 | cut -d'=' -f2 | tr -d ' ')
+                if [ -n "$cost" ]; then
+                  # Add to total using bc for floating point arithmetic
+                  total_cost=$(echo "$total_cost + $cost" | bc)
+                fi
+              fi
+            fi
+          done
+
+          echo "- Total processed: $total" >> $GITHUB_STEP_SUMMARY
+          echo "- Successful: $success" >> $GITHUB_STEP_SUMMARY
+          echo "- Failed: $failed" >> $GITHUB_STEP_SUMMARY
+
+          if [ $success -gt 0 ] && [ $total -gt 0 ]; then
+            rate=$((success * 100 / total))
+            echo "- Success rate: ${rate}%" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Show total cost if any
+          if [ $(echo "$total_cost > 0" | bc) -eq 1 ]; then
+            echo "- Total API cost: \$$total_cost" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload combined results
+        uses: actions/upload-artifact@v4
+        with:
+          name: maintenance-batch-results
+          path: artifacts/
+          retention-days: 30

@@ -82,7 +82,6 @@ class ModelPromptManager:
     def get_current_prompt(self) -> Optional[str]:
         """Get the current prompt being used."""
         return self.current_prompt
-    #####
 
     def ask_model_prompt(self, template_path: str):
         """Decorator for model interactions using prompt templates.
@@ -102,14 +101,13 @@ class ModelPromptManager:
                 type_hints = get_type_hints(func)
                 return_type = type_hints.get('return', type(None))
                 prompt_key = template_path.split('/')[-1].replace('.md', '')
-                if get_settings_manager().is_edit_tools_prompt(prompt_key):
-                    if get_settings_manager().get_setting_enabled("edit_tools"):
-                        return_type = type(None)
-                    # Else, keep the original class return type
+                if get_settings_manager().is_edit_tools_prompt(prompt_key) and \
+                 get_settings_manager().get_setting_enabled("edit_tools"):
+                      return_type = None
                 # Determine output type and whether to use streaming
                 is_streaming = return_type == str
                 is_enum = inspect.isclass(return_type) and issubclass(return_type, Enum)
-                is_structured = return_type not in [str, type(None)]
+                is_structured = return_type not in [str, None]
 
                 # Get function signature to map args to param names
                 sig = inspect.signature(func)
@@ -119,7 +117,7 @@ class ModelPromptManager:
                 # Filter out None values and empty lists from arguments
                 template_context = {
                     k: v for k, v in bound_args.arguments.items() 
-                    if v is not None and v != []
+                    if v is not None# and v != []
                 }
                 
                 tool_call_collector = template_context.pop('tool_call_collector', None) # TODO
@@ -142,20 +140,28 @@ class ModelPromptManager:
                 coordinator_msg = f"@model {first_line}" if len(rendered_prompt) > 100 else f"@model {rendered_prompt}"
                 adapter.show_message(Message(Actor.COORDINATOR, coordinator_msg))
                 
-                # Create agent with appropriate output type
-                if is_structured:
-                    # For structured outputs (enums, lists, etc.), use output_type
-                    agent = VibenixAgent(output_type=return_type)
-                else:
-                    # For strings, we don't need structured output
-                    agent = VibenixAgent()
-                
                 functions = get_settings_manager().get_prompt_tools(prompt_key)
                 try:
                     functions = [get_settings_manager().get_tool_callable(func_name) for func_name in functions]
                 except Exception as e:
                     raise ValueError(f"Failed to get tool callables for prompt '{prompt_key}': {e}")
 
+                from vibenix.model_config import get_cached_model_config
+                model_config = get_cached_model_config()
+                if len(functions) == 0 and model_config["provider"] in ["openai"]:
+                    # If no functions are provided, add a noop tool to avoid errors
+                    from vibenix.tools import noop_tool
+                    functions = [noop_tool]
+
+                # Create agent with appropriate output type
+                if is_structured:
+                    # For structured outputs (enums, lists, etc.), use output_type
+                    agent = VibenixAgent(output_type=return_type)
+                else:
+                    # For strings, we don't need structured output
+                    # AS IT IS this means that even with return_type=None, we get a message response back from the model (fix if needed, with perhaps an object)
+                    agent = VibenixAgent()
+                
                 # Add tools to the agent
                 for tool_func in functions:
                     agent.add_tool(tool_func)
@@ -164,11 +170,11 @@ class ModelPromptManager:
                     # Run the agent
                     if is_streaming: # TODO remove when possible
                         # For string returns, use streaming
-                        result, usage = agent.run_stream(rendered_prompt, message_history=chat_history if chat_history else None)
+                        result, usage = agent.run_stream(rendered_prompt, message_history=chat_history if chat_history else [])
                         get_logger().reply_chunk_text(0, result, 4)
                     else:
                         # For non-streaming (structured outputs), just run normally
-                        result, usage = agent.run(rendered_prompt, message_history=chat_history if chat_history else None)
+                        result, usage = agent.run(rendered_prompt, message_history=chat_history if chat_history else [])
                         
                         if return_type == ModelCodeResponse:
                             from vibenix.flake import update_flake
@@ -194,8 +200,13 @@ class ModelPromptManager:
                         from pydantic_ai.messages import ModelRequest, ModelResponse, UserPromptPart, TextPart
                         from vibenix.flake import get_package_contents
                         
+                        package_contents = get_package_contents()
                         user_message = ModelRequest(parts=[UserPromptPart(content=rendered_prompt)])
-                        model_message = ModelResponse(parts=[TextPart(content=get_package_contents())])
+                        if return_type is None:
+                            response_content = package_contents
+                        else:
+                            response_content = str(result) if result is not None else "(empty response)"
+                        model_message = ModelResponse(parts=[TextPart(content=response_content)])
                         
                         chat_history.append(user_message)
                         chat_history.append(model_message)

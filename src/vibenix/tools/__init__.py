@@ -10,9 +10,13 @@ from vibenix.tools.str_replace import str_replace
 from vibenix.tools.view import view
 from vibenix.tools.insert_line_after import insert_line_after
 from vibenix.tools.error_pagination import error_pagination
-from vibenix.tools.build_package import build_package
-from vibenix.tools.out_path_file_tools import create_out_path_file_tools
-from vibenix.tools.vm_script import run_in_vm
+from vibenix.tools.vm_script import run_in_vm, set_vm_systemPackages
+from vibenix.tools.upgrade_nixpkgs import upgrade_nixpkgs
+
+# Fake useless tool to avoid error when no tools are given
+def noop_tool() -> str:
+    """A no-operation tool that does nothing. Do not use."""
+    return "No operation performed."
 
 # Export all functions so they can be imported from this module
 __all__ = [
@@ -25,9 +29,12 @@ __all__ = [
     'insert_line_after',
     'view',
     'error_pagination',
-    'build_package',
     'run_in_vm',
+    'set_vm_systemPackages',
+    'upgrade_nixpkgs',
+    'noop_tool',
 ]
+
 
 # Standard search functions for all prompts that need them
 SEARCH_TOOLS = [
@@ -37,6 +44,6 @@ SEARCH_TOOLS = [
     search_nixpkgs_for_file,
     search_nixpkgs_manual_documentation,
 ]
+MAINTENANCE_TOOLS = [upgrade_nixpkgs]
 EDIT_TOOLS = [error_pagination, str_replace, insert_line_after, view]
-OUT_PATH_TOOLS = create_out_path_file_tools()
-VM_TOOLS = [run_in_vm]
+VM_TOOLS = [run_in_vm, set_vm_systemPackages]

@@ -76,8 +76,11 @@ class CCLLogger:
             self._write(self._indent() + key + " =\n")
             return
             
-        value_str = str(value).strip()
+        value_str = str(value)
         is_multiline = '\n' in value_str
+        # Only strip for single-line values; preserve leading whitespace for multiline
+        if not is_multiline:
+            value_str = value_str.strip()
         curr_key_path = "@" + "/".join(str(x) for x in self._current_attr_path + [ key ])
         prev_key_path = None
         # reference multi-line values by previous path if possible
@@ -125,8 +128,9 @@ class CCLLogger:
         and proper indentation for each line.
         """
         lines = value_str.splitlines()
-        line_start = ('\n' + self._indent() + "  ")
-        return line_start + line_start.join(line for line in lines)
+        prefix = self._indent() + "  "
+        line_separator = '\n' + prefix
+        return '\n' + prefix + line_separator.join(lines)
     
     def close(self):
         """Close the log file."""
@@ -177,7 +181,10 @@ class CCLLogger:
         self._current_attr_path = []
 
     
-    def log_session_end(self, signal: str = None, total_cost: float = None):
+    def log_session_end(self, signal: str = None, total_cost: float = None,
+         total_input_tokens: int = None, total_output_tokens: int = None,
+         total_cache_read_tokens: int = None
+        ):
         """Log the end of a packaging session.
         
         Args:
@@ -192,6 +199,12 @@ class CCLLogger:
         self.write_kv("signal", signal)
         if total_cost is not None:
             self.write_kv("total_cost", f"{total_cost:.6f}")
+        if total_input_tokens is not None:
+            self.write_kv("total_input_tokens", str(total_input_tokens))
+        if total_output_tokens is not None:
+            self.write_kv("total_output_tokens", str(total_output_tokens))
+        if total_cache_read_tokens is not None:
+            self.write_kv("total_cache_read_tokens", str(total_cache_read_tokens))
         self.leave_attribute()
     
     def log_exception(self, exception_str: str):
@@ -263,6 +276,17 @@ class CCLLogger:
         self.write_kv("cache_read_tokens", str(cache_read_tokens))
         self.write_kv("total_tokens", str(input_tokens + output_tokens))
         self.write_kv("cost", f"{iteration_cost:.6f}")
+        self.leave_attribute()
+
+    def log_packaging_loop_cost(self, packaging_cost: float, input_tokens: int, 
+                           output_tokens: int, cache_read_tokens: int = 0):
+        """Log the total cost for the packaging loop."""
+        self.enter_attribute("packaging_loop_cost")
+        self.write_kv("input_tokens", str(input_tokens))
+        self.write_kv("output_tokens", str(output_tokens))
+        self.write_kv("cache_read_tokens", str(cache_read_tokens))
+        self.write_kv("total_tokens", str(input_tokens + output_tokens))
+        self.write_kv("packaging_cost", f"{packaging_cost:.6f}")
         self.leave_attribute()
 
     def log_refinement_cost(self, packaging_cost: float, refinement_cost: float, 
@@ -356,6 +380,15 @@ class CCLLogger:
         self.write_kv("summary", summary_str)
         self.leave_attribute()
 
+    def log_save_package(self, package_path: str, indent_level: int = 0):
+        """Log saving the package to a file."""
+        self.enter_attribute("save_package")
+        self.write_kv("package_path", package_path)
+        self.leave_attribute()
+
+    def log_debug(self, message: str, indent_level: int = 0):
+        """Log a debug message."""
+        self.write_kv("debug", message)
 
 # Global logger instance
 _logger: CCLLogger = None

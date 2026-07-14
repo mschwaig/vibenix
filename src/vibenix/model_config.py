@@ -5,21 +5,28 @@ This module provides model configuration compatible with the previous litellm-ba
 
 import os
 import json
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, cast
+from pydantic_ai.models import Model
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
+from pydantic_ai.models.openrouter import OpenRouterModel, OpenRouterModelSettings
 from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.models.google import GoogleModel, GoogleModelSettings
 from pydantic_ai.providers.google import GoogleProvider
+from pydantic_ai.models.bedrock import BedrockConverseModel, BedrockModelSettings
+from pydantic_ai.providers.bedrock import BedrockProvider
 from vibenix.ui.logging_config import logger
 
+from botocore.config import Config
+import boto3
 
 from vibenix.defaults import DEFAULT_MODEL_SETTINGS, DEFAULT_USAGE_LIMITS
+from vibenix.model_retrying import RetryingBedrockClient, create_retrying_client
 # Cache for model configuration to avoid repeated loading and logging
-_cached_config = None
-_cached_model = None
+_cached_config: dict[str, Any] | None = None
+_cached_model: Model | None = None
 _use_prompted_output = False  # Whether to use PromptedOutput mode for structured outputs
 
 
@@ -54,26 +61,20 @@ def load_saved_configuration() -> Optional[Tuple[str, str, Optional[str], Option
     return None
 
 
-def get_model_config() -> dict:
+def get_model_config(use_cached: bool=True, remove_model_prefix: bool=True) -> dict[str, Any]:
     """Get the model configuration from saved config, and model settings from env."""
     
     global _cached_config
     
     # Return cached config if available
-    if _cached_config is not None:
+    if _cached_config is not None and use_cached:
         return _cached_config
     
     # Try to load saved configuration
     saved_config = load_saved_configuration()
     
     if saved_config:
-        provider_name, model, ollama_host, openai_api_base = saved_config
-        
-        # Remove provider prefix from model if present
-        if "/" in model:
-            model_name = model.split("/", 1)[1]
-        else:
-            model_name = model
+        provider_name, model_name, ollama_host, openai_api_base = saved_config
         
         # Determine base URL
         if openai_api_base:
@@ -106,9 +107,17 @@ def get_model_config() -> dict:
     
     return _cached_config
 
+def get_cached_model_config() -> dict[str, Any]:
+    """Get the cached model configuration without reloading."""
+    global _cached_config
 
-def get_model():
-    """Get the model instance, creating it if necessary."""
+    if _cached_config is None:
+        raise RuntimeError("Model configuration not initialized. Call initialize_model_config() first.")
+
+    return _cached_config
+
+def get_model() -> Model:
+    """Get the model instance, creating it if necessary.""" # TODO not creating if necessary
     global _cached_model
 
     if _cached_model is None:
@@ -211,14 +220,33 @@ def create_anthropic_settings(settings: Dict[str, Any]) -> AnthropicModelSetting
     logger.info(f"Creating Anthropic settings: max_tokens={merged_settings.get('max_tokens')}, temperature={merged_settings.get('temperature')}, anthropic_thinking={merged_settings.get('anthropic_thinking')}")
     return AnthropicModelSettings(**merged_settings)
 
+def create_openrouter_settings(settings: Dict[str, Any]) -> OpenRouterModelSettings:
+    """Create OpenRouterModelSettings from config dict."""
+    # Use constants for defaults
+    defaults = DEFAULT_MODEL_SETTINGS["openrouter"].copy()
+    
+    merged_settings = {**defaults, **settings}
+    logger.info(f"Creating OpenRouter settings: max_tokens={merged_settings.get('max_tokens')}, temperature={merged_settings.get('temperature')}")
+    return OpenRouterModelSettings(**merged_settings)
 
-def initialize_model_config():
+def create_bedrock_settings(settings: Dict[str, Any]) -> BedrockModelSettings:
+    """Create BedrockModelSettings from config dict."""
+    # Use constants for defaults
+    defaults = DEFAULT_MODEL_SETTINGS["bedrock"].copy()
+    
+    merged_settings = {**defaults, **settings}
+    logger.info(f"Creating Bedrock settings: max_tokens={merged_settings.get('max_tokens')}, temperature={merged_settings.get('temperature')}")
+    return BedrockModelSettings(**merged_settings)
+
+def initialize_model_config(model_settings = None):
     """Initialize model configuration and create model instance. Must be called once at startup."""
     global _cached_model, _use_prompted_output
 
     config = get_model_config()
     provider_name = config.get("provider", "openai")
     model_name = config.get("model_name")
+    if not isinstance(model_name, str):
+        raise RuntimeError("Model name missing from configuration.")
     base_url = config.get("base_url", "")
     
     logger.info(f"Loaded configuration: {provider_name}/{config['model_name']} from {provider_name}")
@@ -236,9 +264,10 @@ def initialize_model_config():
         logger.info(f"Using Anthropic model: {model_name}")
         provider = AnthropicProvider(api_key=api_key, http_client=create_retrying_client())
         
-        # Always use env settings or defaults, never from config file
-        env_settings = load_model_settings_from_env("anthropic")
-        model_settings = create_anthropic_settings(env_settings)
+        if not model_settings:
+            # Always use env settings or defaults, never from config file
+            env_settings = load_model_settings_from_env("anthropic")
+            model_settings = create_anthropic_settings(env_settings)
         _cached_model = AnthropicModel(model_name, provider=provider, settings=model_settings)
     
     elif provider_name == "gemini":
@@ -273,16 +302,17 @@ def initialize_model_config():
         # Pass the configured client to GoogleProvider
         provider = GoogleProvider(client=gemini_client)
 
-        env_settings = load_model_settings_from_env("gemini")
-        model_settings = create_gemini_settings(env_settings)
+        if not model_settings:
+            env_settings = load_model_settings_from_env("gemini")
+            model_settings = create_gemini_settings(env_settings)
         _cached_model = GoogleModel(config["model_name"], provider=provider, settings=model_settings)
     else:
         # Default to OpenAI-compatible models
         base_url = config.get("base_url")
 
         # Check if using OpenRouter or AWS Bedrock
-        is_openrouter = base_url and 'openrouter.ai' in base_url
-        is_bedrock = base_url and 'bedrock' in base_url and 'api.aws' in base_url
+        is_openrouter = provider_name == "openrouter" or (base_url and 'openrouter.ai' in base_url)
+        is_bedrock = provider_name == "bedrock" or (base_url and 'bedrock' in base_url and 'api.aws' in base_url)
 
         # Auto-enable PromptedOutput mode for endpoints that don't reliably support tool-based structured outputs
         if is_openrouter or is_bedrock:
@@ -290,7 +320,6 @@ def initialize_model_config():
             logger.info("Auto-enabled PromptedOutput mode for better compatibility with this endpoint")
 
         if is_bedrock:
-            # Use OpenAI-compatible provider for AWS Bedrock
             from vibenix.secure_keys import get_api_key
             api_key = os.environ.get("AWS_BEARER_TOKEN_BEDROCK")
             if not api_key:
@@ -299,7 +328,24 @@ def initialize_model_config():
                     raise ValueError("AWS_BEARER_TOKEN_BEDROCK not found in environment or secure storage. Run interactively to configure.")
 
             logger.info(f"Using AWS Bedrock model: {model_name} at {base_url}")
-            provider = OpenAIProvider(base_url=base_url, api_key=api_key, http_client=create_retrying_client())
+            bedrock_boto_config = Config(
+                retries={
+                    'mode': 'standard',
+                    'total_max_attempts': 1
+                }
+            )
+            raw_bedrock_client = boto3.client(
+                'bedrock-runtime',
+                region_name='us-east-1',
+                config=bedrock_boto_config
+            )
+            bedrock_client = RetryingBedrockClient(raw_bedrock_client, max_retries=2)
+            bedrock_provider = BedrockProvider(bedrock_client=bedrock_client, api_key=api_key)  # type: ignore[call-overload]
+
+            if not model_settings:
+                env_settings = load_model_settings_from_env("bedrock")
+                model_settings = create_bedrock_settings(env_settings)
+            _cached_model = BedrockConverseModel(model_name, provider=bedrock_provider, settings=model_settings)
 
         elif is_openrouter:
             # Use OpenRouterProvider for OpenRouter endpoints
@@ -310,31 +356,24 @@ def initialize_model_config():
                 if not api_key:
                     raise ValueError("OPENROUTER_API_KEY not found in environment or secure storage. Run interactively to configure.")
 
-            # OpenRouter requires provider prefix in model name (e.g., "openai/gpt-4")
-            # If the model name doesn't have a prefix, try to infer it
-            if '/' not in model_name:
-                # Try to infer provider from model name
-                if model_name.startswith('gpt'):
-                    model_name = f"openai/{model_name}"
-                    logger.warning(f"Model name missing provider prefix for OpenRouter. Inferred: {model_name}")
-                elif model_name.startswith('claude'):
-                    model_name = f"anthropic/{model_name}"
-                    logger.warning(f"Model name missing provider prefix for OpenRouter. Inferred: {model_name}")
-                elif model_name.startswith('gemini'):
-                    model_name = f"google/{model_name}"
-                    logger.warning(f"Model name missing provider prefix for OpenRouter. Inferred: {model_name}")
-                else:
-                    logger.error(f"Cannot infer provider prefix for OpenRouter model: {model_name}")
-                    raise ValueError(
-                        f"OpenRouter requires provider prefix in model name (e.g., 'openai/gpt-4'). "
-                        f"Got: '{model_name}'. Please reconfigure with the full model name."
-                    )
+            config = get_model_config(use_cached=False, remove_model_prefix=False)
+            model_name = config.get("model_name")
+            if not isinstance(model_name, str):
+                raise RuntimeError("Model name missing from configuration.")
+            model_name = provider_name + "/" + model_name if '/' not in model_name else model_name
 
             logger.info(f"Using OpenRouter model: {model_name}")
             provider = OpenRouterProvider(api_key=api_key, http_client=create_retrying_client())
 
             # Update the config cache with the corrected model name
+            if _cached_config is None:
+                raise RuntimeError("Model configuration not initialized.")
             _cached_config["model_name"] = model_name
+
+            if not model_settings:
+                env_settings = load_model_settings_from_env("openrouter")
+                model_settings = create_openrouter_settings(env_settings)
+            _cached_model = OpenRouterModel(model_name, provider=provider, settings=model_settings)
         else:
             # Use OpenAIProvider for other OpenAI-compatible endpoints
             from vibenix.secure_keys import get_api_key
@@ -353,9 +392,10 @@ def initialize_model_config():
             logger.info(f"Using OpenAI-compatible model: {model_name} at {base_url}")
             provider = OpenAIProvider(base_url=base_url, api_key=api_key, http_client=create_retrying_client())
 
-        env_settings = load_model_settings_from_env("openai")
-        model_settings = create_openai_settings(env_settings)
-        _cached_model = OpenAIChatModel(config["model_name"], provider=provider, settings=model_settings)
+            if not model_settings:
+                env_settings = load_model_settings_from_env("openai")
+                model_settings = create_openai_settings(env_settings)
+            _cached_model = OpenAIChatModel(config["model_name"], provider=provider, settings=model_settings)
 
 
 def calc_model_pricing(model: str, prompt_tokens: int, completion_tokens: int,
@@ -430,6 +470,7 @@ def create_retrying_client():
                 f"Request failed (attempt {attempt_number}/10). "
                 f"Using exponential backoff: waiting {wait_seconds:.1f} seconds... "
                 f"Error: {type(exception).__name__}"
+                f": {str(exception)[:200].replace(chr(10), ' ')}"
             )
 
     transport = AsyncTenacityTransport(

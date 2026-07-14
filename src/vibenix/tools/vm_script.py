@@ -15,7 +15,7 @@ logging.getLogger("paramiko.transport").setLevel(logging.CRITICAL)
 
 # Track if VM has been warmed up (first build can take a long time)
 _vm_warmed_up = False
-
+_vm_packages = "[ pkg ]"  # Default systemPackages expression
 
 def _run_script_in_vm(script: str, system_packages: str, flake_path: str = ".", timeout: float = 300) -> str:
     """Run a shell script in a VM that starts, executes the script, and shuts down.
@@ -136,10 +136,29 @@ def _run_script_in_vm(script: str, system_packages: str, flake_path: str = ".", 
         return '\n'.join(lines).rstrip()
     except Exception as e:
         return f"Error reading output: {e}"
+    
+@log_function_call("set_vm_systemPackages")
+def set_vm_systemPackages(system_packages: str = "[ pkg ]") -> str:
+    """Reconfigure the VM with new system packages (persists into future tool calls and prompts).
+    Avoid adding dependencies to the systemPackages that should instead be part of the package itself.
 
+    Args:
+        system_packages: Nix list expression for environment.systemPackages (default: "[ pkg ]").
+                         The expression has `pkg` (the built package) and `pkgs` (nixpkgs) in scope.
+                         Examples:
+                         - "[ pkg ]" - Just the package itself (default)
+                         - "[ pkg (pkgs.python3.withPackages (ps: [ pkg ])) ]" - Package + Python environment
+    """
+    print(f"📞 Function called: set_vm_systemPackages with system_packages: {system_packages}")
+    global _vm_packages
+    if " pkg " not in system_packages:
+        return "Error: system_packages expression must always include ' pkg ' variable representing the built package in some way."
+    _vm_packages = system_packages
+
+    return "Succesfully reconfigured VM packages.\n"
 
 @log_function_call("run_in_vm")
-def run_in_vm(*, script: str, system_packages: str = "[ pkg ]") -> str:
+def run_in_vm(*, script: str) -> str:
     """Execute a shell script in a headless, isolated VM containing the package of interest.
 
     The VM will start up, execute your script, write output to a file, and shut down automatically.
@@ -151,11 +170,6 @@ def run_in_vm(*, script: str, system_packages: str = "[ pkg ]") -> str:
     Arguments:
         script: Shell script content to execute (without #!/bin/sh shebang line).
                 The script will be executed with /bin/sh and output captured automatically.
-        system_packages: Nix list expression for environment.systemPackages (default: "[ pkg ]").
-                         The variables 'pkg' (the built package) and 'pkgs' (nixpkgs) are automatically in scope.
-                         Examples:
-                         - "[ pkg ]" - Just the package itself (default)
-                         - "[ pkg (pkgs.python3.withPackages (ps: [ pkg ])) ]" - Package + Python environment
 
     Returns:
         The stdout and stderr output from the script execution.
@@ -163,7 +177,8 @@ def run_in_vm(*, script: str, system_packages: str = "[ pkg ]") -> str:
     # Display function call with truncated script
     script_preview = script[:50] + "..." if len(script) > 50 else script
     script_preview = script_preview.replace('\n', '\\n')
-    print(f"📞 Function called: run_in_vm with script: '{script_preview}', system_packages: {system_packages}")
+    global _vm_packages
+    print(f"📞 Function called: run_in_vm with script: '{script_preview}', system_packages: {_vm_packages}")
 
     from vibenix import config
     global _vm_warmed_up
@@ -190,7 +205,7 @@ def run_in_vm(*, script: str, system_packages: str = "[ pkg ]") -> str:
                 return result
 
         # Use shorter timeout for actual script execution (VM is already built)
-        return _run_script_in_vm(script, system_packages, str(config.flake_dir), timeout=30)
+        return _run_script_in_vm(script, _vm_packages, str(config.flake_dir), timeout=30)
     except FileNotFoundError:
         return "Error: nixos-shell not found. Please ensure nixos-shell is installed."
     except Exception as e:

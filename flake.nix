@@ -54,7 +54,7 @@
           })
         ]);
 
-        cli-dependencies = with pkgs; [ ripgrep fzf jq nurl nixos-shell nixfmt-rfc-style nix-index-database.packages.${system}.nix-index-with-db ];
+        cli-dependencies = with pkgs; [ ripgrep fzf jq tree nurl nix-update nixos-shell nixfmt-rfc-style statix nil nixf-diagnose nixpkgs-lint-community nix-index-database.packages.${system}.nix-index-with-db ];
 
         # Build the vibenix package
         vibenixPackage = pythonSet.vibenix.overrideAttrs (old: {
